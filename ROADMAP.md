@@ -50,38 +50,18 @@ Load an STL file in the backend, send geometry to the frontend, display in Three
 
 ---
 
-## Phase 3: Project Persistence
-Save and load project state so work survives across sessions.
+## Phase 3: Object Transforms + Undo/Redo
+Model manipulation tools and the command pattern infrastructure to make them undoable. Built simultaneously — every transform is an undoable command from day one.
 
-**Deliverables**:
-- [ ] Project file format design (JSON or SQLite — decide during spike)
-- [ ] Save: mesh file path, model transform, slice parameters, placed supports, raft settings
-- [ ] Load: restore full project state from file
-- [ ] IPC: `save_project` and `load_project` commands
-- [ ] Recent files list in frontend
-- [ ] Dirty state tracking (unsaved changes indicator)
-- [ ] File association (.guava extension)
-
----
-
-## Phase 4: Undo/Redo System
-Command pattern infrastructure for all mutations.
-
-**Deliverables**:
+**Deliverables — Undo/Redo**:
 - [ ] Command base class with `execute()` and `undo()` methods
 - [ ] Undo/redo stack in backend
 - [ ] IPC: `undo` and `redo` commands
 - [ ] Frontend: Ctrl+Z / Ctrl+Shift+Z keybindings
 - [ ] Undo/redo state in UI (button enable/disable, action name display)
-- [ ] Retroactively wrap `load_mesh` and model transforms as commands
-- [ ] Project save captures undo stack state
+- [ ] Retroactively wrap `load_mesh` as a command
 
----
-
-## Phase 5: Model Manipulation
-Pre-slice model editing tools.
-
-**Deliverables**:
+**Deliverables — Model Manipulation**:
 - [ ] Model orientation (rotate around X/Y/Z, snap to 90°)
 - [ ] Model positioning (translate, place on build plate)
 - [ ] Model scaling (uniform and per-axis)
@@ -91,7 +71,7 @@ Pre-slice model editing tools.
 
 ---
 
-## Phase 6: Slicing Engine Spike
+## Phase 4: Slicing Engine Spike
 Intersect mesh with Z-planes, produce contour polygons per layer.
 
 **Deliverables**:
@@ -109,7 +89,7 @@ Intersect mesh with Z-planes, produce contour polygons per layer.
 
 ---
 
-## Phase 7: Island Detection
+## Phase 5: Island Detection
 Identify unsupported regions per layer.
 
 **Deliverables**:
@@ -124,7 +104,7 @@ Identify unsupported regions per layer.
 
 ---
 
-## Phase 8: Support Generation
+## Phase 6: Support Generation
 Generate FDM-compatible supports and rafts.
 
 **Reference**: `/Users/ericolson/Library/CloudStorage/Dropbox/3d printing/software/Resin2FDM-Lite-v1` — Resin2FDM codebase for support generation / mesh processing prior art.
@@ -142,7 +122,22 @@ Generate FDM-compatible supports and rafts.
 
 ---
 
-## Phase 9: STL Export
+## Phase 7: Project Persistence
+Save and load project state so work survives across sessions.
+
+**Deliverables**:
+- [ ] Project file format design (JSON or SQLite — decide during spike)
+- [ ] Save: mesh file path, model transform, slice parameters, placed supports, raft settings
+- [ ] Load: restore full project state from file
+- [ ] IPC: `save_project` and `load_project` commands
+- [ ] Recent files list in frontend
+- [ ] Dirty state tracking (unsaved changes indicator)
+- [ ] File association (.guava extension)
+- [ ] Project save captures undo stack state
+
+---
+
+## Phase 8: STL Export
 Export model and supports as separate STLs.
 
 **Deliverables**:
@@ -155,7 +150,7 @@ Export model and supports as separate STLs.
 
 ---
 
-## Phase 10: Model Sectioning Spike
+## Phase 9: Model Sectioning
 Cut a model into multiple pieces along user-defined planes, with connectors (pins, dovetails, etc.) for reassembly after printing. Enables printing large models that exceed build volume.
 
 **Deliverables**:
