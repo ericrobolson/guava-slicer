@@ -16,6 +16,29 @@ fn collectCppSources(b: *std.Build, dir_path: []const u8) []const []const u8 {
     return sources.toOwnedSlice(b.allocator) catch &.{};
 }
 
+fn collectCppSourcesExcludingMultiple(b: *std.Build, dir_path: []const u8, excludes: []const []const u8) []const []const u8 {
+    var sources: std.ArrayList([]const u8) = .empty;
+    const root = b.build_root.handle;
+    var dir = root.openDir(b.graph.io, dir_path, .{ .iterate = true }) catch return sources.toOwnedSlice(b.allocator) catch &.{};
+    defer dir.close(b.graph.io);
+    var walker = dir.walk(b.allocator) catch return sources.toOwnedSlice(b.allocator) catch &.{};
+    defer walker.deinit();
+    while (walker.next(b.graph.io) catch null) |entry| {
+        if (entry.kind == .file and std.mem.endsWith(u8, entry.basename, ".cpp")) {
+            const p = std.fmt.allocPrint(b.allocator, "{s}/{s}", .{ dir_path, entry.path }) catch continue;
+            var excluded = false;
+            for (excludes) |ex| {
+                if (std.mem.eql(u8, p, ex)) {
+                    excluded = true;
+                    break;
+                }
+            }
+            if (!excluded) sources.append(b.allocator, p) catch continue;
+        }
+    }
+    return sources.toOwnedSlice(b.allocator) catch &.{};
+}
+
 fn collectCppSourcesExcluding(b: *std.Build, dir_path: []const u8, exclude: []const u8) []const []const u8 {
     var sources: std.ArrayList([]const u8) = .empty;
     const root = b.build_root.handle;
@@ -41,6 +64,14 @@ const cpp_flags: []const []const u8 = &.{
     "-Wextra",
 };
 
+// stl_parser.cpp includes microstl which uses throw — compile with exceptions enabled at this boundary
+const cpp_flags_with_exceptions: []const []const u8 = &.{
+    "-std=c++17",
+    "-fno-rtti",
+    "-Wall",
+    "-Wextra",
+};
+
 fn configureExe(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -55,14 +86,19 @@ fn configureExe(
         }),
     });
 
-    const src_files = collectCppSources(b, "src");
+    const src_files = collectCppSourcesExcluding(b, "src", "src/stl_parser.cpp");
     exe.root_module.addCSourceFiles(.{
         .files = src_files,
         .flags = cpp_flags,
     });
 
+    exe.root_module.addCSourceFiles(.{
+        .files = &.{"src/stl_parser.cpp"},
+        .flags = cpp_flags_with_exceptions,
+    });
+
     exe.root_module.addIncludePath(b.path("src"));
-    exe.root_module.addIncludePath(b.path("vendor"));
+    exe.root_module.addSystemIncludePath(b.path("vendor"));
 
     return exe;
 }
@@ -95,18 +131,24 @@ pub fn build(b: *std.Build) void {
     });
 
     const test_files = collectCppSources(b, "tests");
-    const test_src_files = collectCppSourcesExcluding(b, "src", "src/main.cpp");
     test_exe.root_module.addCSourceFiles(.{
         .files = test_files,
         .flags = &.{ "-std=c++17", "-Wall", "-Wextra" },
     });
+
+    // Exclude main.cpp and stl_parser.cpp from standard flags
+    const test_src_files = collectCppSourcesExcludingMultiple(b, "src", &.{ "src/main.cpp", "src/stl_parser.cpp" });
     test_exe.root_module.addCSourceFiles(.{
         .files = test_src_files,
         .flags = cpp_flags,
     });
+    test_exe.root_module.addCSourceFiles(.{
+        .files = &.{"src/stl_parser.cpp"},
+        .flags = cpp_flags_with_exceptions,
+    });
 
     test_exe.root_module.addIncludePath(b.path("src"));
-    test_exe.root_module.addIncludePath(b.path("vendor"));
+    test_exe.root_module.addSystemIncludePath(b.path("vendor"));
     test_exe.root_module.addIncludePath(b.path("../../../libs/doctest"));
 
     const run_tests = b.addRunArtifact(test_exe);

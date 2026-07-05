@@ -1,111 +1,136 @@
 <template>
   <div class="app">
-    <header class="header">
-      <h1>Guava Slicer — IPC Console</h1>
+    <header class="toolbar">
+      <button @click="openFile" :disabled="!connected || busy">Open File</button>
+      <span v-if="filePath" class="file-name">{{ fileBaseName }}</span>
       <span :class="['status', connected ? 'connected' : 'disconnected']">
-        {{ connected ? 'Backend Connected' : 'Backend Disconnected' }}
+        {{ connected ? 'Connected' : 'Disconnected' }}
       </span>
     </header>
 
-    <div class="controls">
-      <button @click="sendPing" :disabled="!connected">Ping</button>
-      <button @click="sendSimulate" :disabled="!connected">Simulate (10 steps)</button>
-      <button @click="sendGetBinary" :disabled="!connected">Get Binary (1KB)</button>
-      <button @click="clearLog">Clear Log</button>
-    </div>
-
-    <div v-if="progress !== null" class="progress-bar">
+    <div v-if="phase" :class="['progress-bar', { indeterminate: phase === 'processing' }]">
       <div class="progress-fill" :style="{ width: progressPercent + '%' }"></div>
-      <span class="progress-text">{{ progress.step }} / {{ progress.total }}</span>
+      <span class="progress-text">{{ phaseLabel }}</span>
     </div>
 
-    <div class="log" ref="logEl">
-      <div v-for="(entry, i) in log" :key="i" :class="['log-entry', entry.direction]">
-        <span class="log-time">{{ formatTime(entry.timestamp) }}</span>
-        <span class="log-dir">{{ entry.direction === 'sent' ? '→' : '←' }}</span>
-        <pre class="log-body">{{ entry.raw }}</pre>
-      </div>
+    <div v-if="errorMessage" class="error-banner">
+      <span>{{ errorMessage }}</span>
+      <button class="dismiss" @click="errorMessage = null">×</button>
+    </div>
+
+    <div class="main-content">
+      <Viewport :meshData="meshData" @drop-file="loadFromPath" />
+      <Sidebar :stats="meshStats" :filePath="filePath" />
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, nextTick, computed } from 'vue'
+import { ref, computed } from 'vue'
+import Viewport from './components/Viewport.vue'
+import Sidebar from './components/Sidebar.vue'
+import { basename } from './utils/path.js'
 
 const connected = ref(false)
-const log = ref([])
-const progress = ref(null)
-const logEl = ref(null)
+const filePath = ref('')
+const errorMessage = ref(null)
+const meshData = ref(null)
+const meshStats = ref(null)
+const phase = ref(null)
+const progress = ref({ read: 0, total: 0 })
+
+let pendingRequestId = null
+
+const fileBaseName = computed(() => basename(filePath.value))
+
+const busy = computed(() => phase.value !== null)
 
 const progressPercent = computed(() => {
-  if (!progress.value) return 0
-  return Math.round((progress.value.step / progress.value.total) * 100)
+  if (phase.value === 'processing') return 100
+  if (!progress.value.total) return 0
+  return Math.round((progress.value.read / progress.value.total) * 100)
 })
 
-function formatTime(ts) {
-  const d = new Date(ts)
-  return d.toLocaleTimeString('en-US', { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3, '0')
-}
+const phaseLabel = computed(() => {
+  if (phase.value === 'processing') return 'Processing mesh...'
+  return `Loading... ${progressPercent.value}%`
+})
 
-function addLog(direction, raw) {
-  log.value.push({ direction, timestamp: Date.now(), raw })
-  nextTick(() => {
-    if (logEl.value) logEl.value.scrollTop = logEl.value.scrollHeight
-  })
-}
+function loadFromPath(path) {
+  if (!window.electronIPC || !path) return
 
-function sendCommand(cmd, params = {}) {
-  if (!window.electronIPC) return
+  filePath.value = path
+  phase.value = 'loading'
+  errorMessage.value = null
+  meshData.value = null
+  meshStats.value = null
+  progress.value = { read: 0, total: 0 }
+
   const id = crypto.randomUUID()
-  const request = { cmd, id, params }
-  addLog('sent', JSON.stringify(request, null, 2))
-  window.electronIPC.send(JSON.stringify(request))
-  return id
+  pendingRequestId = id
+  window.electronIPC.send(JSON.stringify({
+    cmd: 'load_mesh',
+    id,
+    params: { path },
+  }))
 }
 
-function sendPing() {
-  sendCommand('ping')
+async function openFile() {
+  if (!window.electronIPC) return
+  const path = await window.electronIPC.openFileDialog()
+  if (path) loadFromPath(path)
 }
 
-function sendSimulate() {
-  progress.value = { step: 0, total: 10 }
-  sendCommand('simulate', { steps: 10 })
-}
+function handleMessage(msg) {
+  if (msg.event === 'progress' && msg.data) {
+    const read = msg.data.triangles_read || 0
+    const total = msg.data.total || 0
+    progress.value = { read, total }
 
-function sendGetBinary() {
-  sendCommand('get_binary', { size: 1024 })
-}
+    if (total > 0 && read >= total && phase.value === 'loading') {
+      phase.value = 'processing'
+    }
+    return
+  }
 
-function clearLog() {
-  log.value = []
-  progress.value = null
+  if (msg.id && msg.id === pendingRequestId && 'ok' in msg) {
+    if (msg.ok) {
+      meshStats.value = msg.result
+
+      if (msg._binaryPaths && msg._binaryPaths.length >= 3) {
+        phase.value = 'processing'
+
+        requestAnimationFrame(() => {
+          const positions = new Float32Array(window.electronIPC.readBinaryFile(msg._binaryPaths[0]))
+          const normals = new Float32Array(window.electronIPC.readBinaryFile(msg._binaryPaths[1]))
+          const indices = new Uint32Array(window.electronIPC.readBinaryFile(msg._binaryPaths[2]))
+
+          meshData.value = { positions, normals, indices }
+          phase.value = null
+        })
+      } else {
+        phase.value = null
+      }
+    } else {
+      errorMessage.value = msg.error
+        ? `${msg.error.code}: ${msg.error.message}`
+        : 'Unknown error loading mesh'
+      phase.value = null
+    }
+
+    pendingRequestId = null
+  }
 }
 
 if (window.electronIPC) {
-  window.electronIPC.onMessage((msg) => {
-    addLog('received', JSON.stringify(msg, null, 2))
-
-    if (msg.event === 'progress' && msg.data) {
-      progress.value = { step: msg.data.step, total: msg.data.total }
-    }
-
-    if ('ok' in msg && progress.value) {
-      progress.value = null
-    }
-  })
-
-  window.electronIPC.onBinary((byteLength) => {
-    addLog('received', `[binary frame: ${byteLength} bytes]`)
-  })
+  window.electronIPC.onMessage(handleMessage)
 
   window.electronIPC.onConnected(() => {
     connected.value = true
-    addLog('received', '[backend connected]')
   })
 
   window.electronIPC.onDisconnected(() => {
     connected.value = false
-    addLog('received', '[backend disconnected]')
   })
 }
 </script>
@@ -123,60 +148,74 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  padding: 16px;
-  gap: 12px;
 }
 
-.header {
+.toolbar {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-}
-
-.header h1 {
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.status {
-  font-size: 13px;
-  padding: 4px 10px;
-  border-radius: 12px;
-}
-
-.status.connected { background: #2d5a2d; color: #7ddf7d; }
-.status.disconnected { background: #5a2d2d; color: #df7d7d; }
-
-.controls {
-  display: flex;
-  gap: 8px;
-}
-
-.controls button {
+  gap: 12px;
   padding: 8px 16px;
+  background: #22223a;
+  border-bottom: 1px solid #333;
+  flex-shrink: 0;
+}
+
+.toolbar button {
+  padding: 6px 14px;
   border: 1px solid #444;
-  border-radius: 6px;
+  border-radius: 4px;
   background: #2a2a4a;
   color: #e0e0e0;
   cursor: pointer;
   font-size: 13px;
 }
 
-.controls button:hover:not(:disabled) { background: #3a3a5a; }
-.controls button:disabled { opacity: 0.4; cursor: not-allowed; }
+.toolbar button:hover:not(:disabled) { background: #3a3a5a; }
+.toolbar button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.file-name {
+  font-size: 13px;
+  color: #aaa;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.status.connected { background: #2d5a2d; color: #7ddf7d; }
+.status.disconnected { background: #5a2d2d; color: #df7d7d; }
 
 .progress-bar {
   position: relative;
-  height: 24px;
+  height: 20px;
   background: #2a2a4a;
-  border-radius: 4px;
+  flex-shrink: 0;
   overflow: hidden;
 }
 
 .progress-fill {
   height: 100%;
   background: #4a7a4a;
-  transition: width 0.15s ease;
+  transition: width 0.1s ease;
+}
+
+.progress-bar.indeterminate .progress-fill {
+  background: linear-gradient(90deg, #4a7a4a 0%, #6aaa6a 50%, #4a7a4a 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  width: 100% !important;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 .progress-text {
@@ -184,38 +223,33 @@ body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
 }
 
-.log {
-  flex: 1;
-  overflow-y: auto;
-  background: #111122;
-  border-radius: 6px;
-  padding: 8px;
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 12px;
-}
-
-.log-entry {
+.error-banner {
   display: flex;
-  gap: 8px;
-  padding: 4px 0;
-  border-bottom: 1px solid #222233;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: #5a2d2d;
+  color: #df7d7d;
+  font-size: 13px;
+  flex-shrink: 0;
 }
 
-.log-entry.sent { color: #7db4df; }
-.log-entry.received { color: #b4df7d; }
+.error-banner .dismiss {
+  background: none;
+  border: none;
+  color: #df7d7d;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+}
 
-.log-time { color: #666; white-space: nowrap; }
-.log-dir { font-weight: bold; }
-
-.log-body {
-  white-space: pre-wrap;
-  word-break: break-all;
-  margin: 0;
-  font-family: inherit;
-  font-size: inherit;
+.main-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
 }
 </style>

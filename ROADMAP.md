@@ -25,21 +25,28 @@ Prove the stdio IPC protocol between a minimal C++ backend and Electron frontend
 
 ---
 
-## Phase 2: STL Loading Spike
+## Phase 2: STL Loading Spike ✓ DONE
 Load an STL file in the backend, send geometry to the frontend, display in Three.js.
 
 **Deliverables**:
-- [ ] STL parser (binary + ASCII) in C++
-- [ ] IPC: `load_mesh` command → backend parses → sends vertex/face data to frontend via binary frame
-- [ ] Three.js viewport with orbit camera, grid, build plate visualization
-- [ ] Mesh display with basic shading
-- [ ] File open dialog (Electron)
-- [ ] `make -s run` launches app, opens file, displays mesh
+- [x] STL parser (binary + ASCII) in C++ via microstl wrapper with result types
+- [x] IPC: `load_mesh` command → backend parses → sends vertex/face data to frontend via binary frame
+- [x] Three.js viewport with orbit camera, grid, build plate visualization
+- [x] Mesh display with basic shading (MeshPhongMaterial, flat shading)
+- [x] File open dialog (Electron) + drag-and-drop STL files onto viewport
+- [x] `make -s run` launches app, opens file, displays mesh
+- [x] Blender-style numpad controls (1/3/7 views, 5 ortho toggle, 2/4/6/8 orbit, 9 back, 0 reset, +/- zoom)
+- [x] 3D axis gizmo in viewport corner
+- [x] Mesh info sidebar (vertex/triangle count, bounding box, dimensions, file size)
+- [x] Two-phase progress bar (loading + processing mesh)
+- [x] Memory-mapped file I/O for 100MB+ STL files
+- [x] Vertex deduplication with hash map during parse
 
-**Decisions to make**:
-- [ ] Mesh data structure (indexed triangle soup vs. half-edge — spike both, profile)
-- [ ] Linear algebra library (candidate: Eigen or lightweight header-only vec/mat)
-- [ ] STL ASCII parser (candidate: fast_float for number parsing)
+**Decisions made**:
+- [x] Mesh data structure: indexed triangle soup (flat float/uint32 arrays, cache-friendly, trivial IPC serialization)
+- [x] Linear algebra library: linalg.h (public domain, single header, carries forward to Phase 5+)
+- [x] STL parser: microstl (MIT, header-only) with result-type wrapper, fast_float for ASCII number parsing
+- [x] Error handling: production-grade with structured errors at IPC boundary, partial recovery, mmap for large files
 
 ---
 
@@ -145,3 +152,22 @@ Export model and supports as separate STLs.
 - [ ] Export dialog with format options
 - [ ] IPC: `export_stl` command with export mode param
 - [ ] Verify exported STLs load correctly in Bambu Studio
+
+---
+
+## Phase 10: Model Sectioning Spike
+Cut a model into multiple pieces along user-defined planes, with connectors (pins, dovetails, etc.) for reassembly after printing. Enables printing large models that exceed build volume.
+
+**Deliverables**:
+- [ ] Spike: mesh-plane boolean cut (split mesh into two pieces along an arbitrary plane)
+- [ ] Spike: connector geometry generation (pin/socket, dovetail — at least two styles)
+- [ ] Cutting plane placement UI in 3D viewport
+- [ ] Preview of cut pieces before committing
+- [ ] Connector placement at cut interfaces (automatic or manual)
+- [ ] Export cut pieces as separate STLs
+- [ ] Undo/redo for all sectioning operations
+
+**Decisions to make**:
+- [ ] Boolean library (Clipper2? CGAL? manifold? — must vendor and build under Zig)
+- [ ] Connector attachment strategy (geometry union vs. separate mesh)
+- [ ] Multi-cut ordering and interaction (can cuts intersect?)

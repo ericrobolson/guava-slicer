@@ -1,10 +1,10 @@
 /// @file commands.h
-/// @brief Phase 1 IPC command registration.
+/// @brief IPC command registration for all phases.
 #pragma once
 
 namespace commands {
 
-/// @brief Register all Phase 1 commands (ping, simulate, get_binary).
+/// @brief Register all IPC commands.
 void register_all();
 
 } // namespace commands

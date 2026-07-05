@@ -20,6 +20,9 @@ Open-source support preparation tool for FDM printing. Load STL models, slice la
 | Mesh I/O | STL (binary + ASCII) |
 | 3D viewport | Three.js |
 | UI framework | Vue 3 |
+| STL parser | microstl (vendored, MIT, header-only) |
+| Linear algebra | linalg.h (vendored, public domain, single header) |
+| Float parsing | fast_float (vendored, Apache-2.0/MIT, header-only) |
 | State management | TBD during implementation (Pinia or equivalent) |
 | Testing (C++) | doctest |
 | Build system | Zig (C++ backend), npm (frontend) |
@@ -41,6 +44,12 @@ Open-source support preparation tool for FDM printing. Load STL models, slice la
 ## Output
 
 The tool exports STL files — it does not drive a printer directly. The exported STLs are loaded into Bambu Studio (or any FDM slicer) for final slicing, G-code generation, and printing. Supports and model are exported as separate meshes so they can be printed at different settings (e.g., model at 0.08mm, supports at 0.16mm).
+
+## Design Documents
+
+Detailed subsystem designs live in `designs/`:
+
+- [IPC Protocol](designs/ipc-protocol.md) — stdio framing format, request/response envelope, binary frames, progress events
 
 ## Architecture
 

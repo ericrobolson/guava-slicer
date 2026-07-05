@@ -1,7 +1,8 @@
 /// @file commands.cpp
-/// @brief Phase 1 command implementations: ping, simulate, get_binary.
+/// @brief IPC command implementations.
 #include "commands.h"
 #include "ipc.h"
+#include "stl_parser.h"
 
 #include <cstdint>
 #include <thread>
@@ -64,10 +65,77 @@ static void handle_get_binary(const std::string& id, const ipc::json& params) {
     ipc::send_binary(payload.data(), size);
 }
 
+/// @brief Map stl_parser error codes to IPC error code strings.
+static const char* stl_error_to_ipc_code(stl_parser::Error err) {
+    switch (err) {
+        case stl_parser::Error::FILE_NOT_FOUND:       return "IO_ERROR";
+        case stl_parser::Error::EMPTY_FILE:            return "IO_ERROR";
+        case stl_parser::Error::MMAP_FAILED:           return "IO_ERROR";
+        case stl_parser::Error::INVALID_STL:           return "INVALID_STL";
+        case stl_parser::Error::PARSE_ERROR:           return "PARSE_ERROR";
+        case stl_parser::Error::FACET_COUNT_EXCEEDED:  return "OUT_OF_MEMORY";
+        default:                                       return "PARSE_ERROR";
+    }
+}
+
+/// @brief Load mesh handler — parses STL on a worker thread, sends geometry as binary frames.
+static void handle_load_mesh(const std::string& id, const ipc::json& params) {
+    if (!params.contains("path") || !params["path"].is_string()) {
+        ipc::send_error(id, "INVALID_PARAMS", "missing or invalid 'path' parameter");
+        return;
+    }
+
+    std::string path = params["path"].get<std::string>();
+
+    std::thread worker([id, path]() {
+        ipc::log_debug("load_mesh: parsing " + path);
+
+        auto progress_cb = [&id](uint32_t read, uint32_t total) {
+            ipc::send_progress(id, {{"triangles_read", read}, {"total", total}});
+        };
+
+        stl_parser::ParseResult result = stl_parser::parse_file(path, progress_cb);
+
+        if (!result.ok()) {
+            ipc::send_error(id, stl_error_to_ipc_code(result.error), result.error_message);
+            ipc::log_debug("load_mesh: failed — " + result.error_message);
+            return;
+        }
+
+        const mesh::Mesh& m = result.mesh;
+        ipc::log_debug("load_mesh: parsed " + std::to_string(m.triangle_count) +
+                        " triangles, " + std::to_string(m.vertex_count) + " unique vertices");
+
+        auto send_buffer = [](const auto& vec) {
+            ipc::send_binary(
+                reinterpret_cast<const uint8_t*>(vec.data()),
+                static_cast<uint32_t>(vec.size() * sizeof(vec[0])));
+        };
+        send_buffer(m.vertices);
+        send_buffer(m.normals);
+        send_buffer(m.indices);
+
+        ipc::json bbox_min = {m.bounding_box.min.x, m.bounding_box.min.y, m.bounding_box.min.z};
+        ipc::json bbox_max = {m.bounding_box.max.x, m.bounding_box.max.y, m.bounding_box.max.z};
+
+        ipc::send_ok(id, {
+            {"vertex_count", m.vertex_count},
+            {"triangle_count", m.triangle_count},
+            {"bounding_box", {{"min", bbox_min}, {"max", bbox_max}}},
+            {"file_size_bytes", m.file_size_bytes},
+            {"skipped_triangles", m.skipped_triangles},
+        });
+
+        ipc::log_debug("load_mesh: complete");
+    });
+    worker.detach();
+}
+
 void register_all() {
     ipc::register_command("ping", handle_ping);
     ipc::register_command("simulate", handle_simulate);
     ipc::register_command("get_binary", handle_get_binary);
+    ipc::register_command("load_mesh", handle_load_mesh);
 }
 
 } // namespace commands
