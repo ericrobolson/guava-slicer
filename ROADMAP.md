@@ -4,24 +4,24 @@ Phased implementation. Each feature starts with a spike to prove the approach be
 
 ---
 
-## Phase 1: IPC Spike ← ACTIVE
+## Phase 1: IPC Spike ✓ DONE
 Prove the stdio IPC protocol between a minimal C++ backend and Electron frontend.
 
 **Deliverables**:
-- [ ] Minimal C++ backend: reads JSON from stdin, writes JSON to stdout
-- [ ] Length-prefixed binary framing for large payloads
-- [ ] UUID-based request/response correlation
-- [ ] Standard `{ok, error}` response envelope
-- [ ] Progress event streaming (simulated long operation)
-- [ ] Electron app spawns backend via `child_process`
-- [ ] Vue frontend sends a command and displays the response
-- [ ] Zig build for backend, npm for frontend, top-level Makefile wrapping both
-- [ ] Verify cross-compilation of backend (macOS ARM/Intel, Windows x86_64)
+- [x] Minimal C++ backend: reads JSON from stdin, writes JSON to stdout
+- [x] Length-prefixed binary framing for large payloads
+- [x] UUID-based request/response correlation
+- [x] Standard `{ok, error}` response envelope
+- [x] Progress event streaming (simulated long operation)
+- [x] Electron app spawns backend via `child_process`
+- [x] Vue frontend sends a command and displays the response
+- [x] Zig build for backend, npm for frontend, top-level Makefile wrapping both
+- [x] Verify cross-compilation of backend (macOS ARM/Intel, Windows x86_64)
 
-**Decisions to make**:
-- [ ] JSON parsing library for C++ (candidate: nlohmann/json, header-only)
-- [ ] Binary framing format (4-byte LE length + payload)
-- [ ] Thread pool library or roll minimal pool
+**Decisions made**:
+- [x] JSON parsing library: nlohmann/json v3.11.3, header-only, vendored
+- [x] Binary framing format: 1-byte type prefix (0x01 JSON, 0x02 binary) + 4-byte LE length + payload
+- [x] Threading: std::thread per long-running command (no pool yet — revisit when needed)
 
 ---
 
@@ -119,6 +119,8 @@ Identify unsupported regions per layer.
 
 ## Phase 8: Support Generation
 Generate FDM-compatible supports and rafts.
+
+**Reference**: `/Users/ericolson/Library/CloudStorage/Dropbox/3d printing/software/Resin2FDM-Lite-v1` — Resin2FDM codebase for support generation / mesh processing prior art.
 
 **Deliverables**:
 - [ ] Support placement: click-to-place in 3D viewport (undoable)

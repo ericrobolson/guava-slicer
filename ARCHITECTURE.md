@@ -1,7 +1,5 @@
 # Guava Slicer — Architecture
 
-> To be fully populated during Phase 1 spikes. This document captures the high-level split and will be updated with directory structure, data flow, and module details as architecture decisions are made.
-
 ## High-Level Split
 
 ```
@@ -47,16 +45,53 @@ Frontend                          Backend
 ## Directory Structure
 
 ```
-TBD — will be populated during Phase 1 spikes.
+guava-slicer/
+├── ARCHITECTURE.md
+├── CLAUDE.md
+├── DESIGN.md
+├── LICENSE
+├── Makefile              # Top-level: wraps backend + frontend builds
+├── README.md
+├── ROADMAP.md
+├── designs/
+│   └── ipc-protocol.md   # IPC protocol design doc
+├── plans/                 # One-shot plan files
+├── backend/
+│   ├── build.zig          # Zig build: exe, tests, cross-compilation
+│   ├── Makefile           # Wraps zig build targets
+│   ├── src/
+│   │   ├── main.cpp       # Entry point
+│   │   ├── ipc.h          # IPC protocol: framing, send/receive, command dispatch
+│   │   ├── ipc.cpp
+│   │   ├── commands.h     # Command handler registration
+│   │   └── commands.cpp   # ping, simulate, get_binary handlers
+│   ├── tests/
+│   │   ├── main.cpp       # doctest entry point
+│   │   └── test_ipc.cpp   # IPC message shape + framing tests
+│   └── vendor/
+│       └── nlohmann/
+│           └── json.hpp   # nlohmann/json v3.11.3 (single header)
+└── frontend/
+    ├── package.json
+    ├── vite.config.js
+    ├── index.html
+    ├── electron/
+    │   ├── main.cjs       # Electron main process: spawns backend, frame parser
+    │   ├── preload.cjs    # Context bridge: exposes IPC to renderer
+    │   └── dev.cjs        # Dev launcher: starts Vite then Electron
+    └── src/
+        ├── main.js        # Vue app entry
+        └── App.vue        # IPC Console UI: buttons, log, progress bar
+```
 
-Expected shape:
-backend/
-  src/           # C++ source
-  vendor/        # vendored dependencies
-  tests/         # doctest tests
-  build.zig      # Zig build file
-frontend/
-  src/           # Vue 3 + Three.js
-  package.json   # npm config
-  electron/      # Electron main process
+## Dependency Flow
+
+```
+frontend/src/App.vue
+  → window.electronIPC (preload.cjs context bridge)
+    → ipcMain/ipcRenderer (Electron IPC)
+      → electron/main.cjs (frame parser, child_process)
+        → backend/zig-out/bin/guava-slicer-backend (stdio)
+          → ipc.cpp (command dispatch)
+            → commands.cpp (handler logic)
 ```

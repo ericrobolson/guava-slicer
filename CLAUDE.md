@@ -71,6 +71,13 @@ Transport: child_process stdio. JSON for structured messages, length-prefixed bi
 - No `#include` cycles. Headers include only what they use.
 - Doxygen `@file` + `@brief` on every header.
 
+## Design Documents
+
+- Per-topic design files live in `designs/`. Each file covers one subsystem or concept (e.g., `designs/ipc-protocol.md`, `designs/slicing-engine.md`).
+- `DESIGN.md` at project root is the high-level overview only — tech stack, workflow, architecture summary. Detailed designs belong in `designs/`.
+- When introducing a new subsystem, protocol, data structure, or non-trivial concept, create a `designs/<topic>.md` before or during implementation. The design doc should cover: purpose, constraints, data flow, message formats, and key decisions.
+- Keep design docs current — if implementation diverges from the design, update the design doc as part of the same change.
+
 ## Documentation Maintenance
 
 After implementing a feature, completing a roadmap phase, or making architectural changes:
@@ -78,7 +85,7 @@ After implementing a feature, completing a roadmap phase, or making architectura
 1. **Update ARCHITECTURE.md** — when the directory structure changes, new modules are added, or layer boundaries shift.
 2. **Update DESIGN.md** — if the change affects tech stack decisions, workflows, or system architecture.
 3. **Update ROADMAP.md** — check off completed items, add new items discovered during implementation.
-4. **Update the relevant design doc** (`designs/*.md`) if the change affects a specific subsystem.
+4. **Update the relevant design doc** (`designs/*.md`) if the change affects a specific subsystem. Create a new one if the subsystem doesn't have one yet.
 
 Do this as part of the implementation, not as a separate pass.
 
