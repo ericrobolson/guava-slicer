@@ -47,6 +47,8 @@
         :sliceContours="sliceContours"
         :sliceLayerCount="sliceLayerCount"
         :sliceCurrentLayer="sliceCurrentLayer"
+        :islandContourIndices="currentLayerIslands ? currentLayerIslands.islands.map(i => i.contour_index) : null"
+        :severityScores="islandResult ? islandResult.severityScores : null"
         @drop-file="loadFromPath"
         @orient="onOrient"
         @update:sliceLayer="onSliceLayerChange"
@@ -82,7 +84,11 @@
           :layerHeight="sliceLayerHeight"
           :warningCount="sliceWarningCount"
           :sliceProgress="sliceProgress"
+          :islandDetecting="islandDetecting"
+          :islandResult="islandResult"
+          :currentLayerIslands="currentLayerIslands"
           @toggle-inspect="toggleSliceInspect"
+          @jump-to-layer="onSliceLayerChange"
           @update:layerHeight="onLayerHeightChange"
         />
       </div>
@@ -137,6 +143,10 @@ const sliceWarningCount = ref(0)
 const sliceContours = ref(null)
 const sliceProgress = ref({ current: 0, total: 0 })
 let sliceReady = false
+
+const islandDetecting = ref(false)
+const islandResult = ref(null)
+const currentLayerIslands = ref(null)
 
 const pendingCallbacks = new Map()
 const progressCallbacks = new Map()
@@ -321,6 +331,7 @@ let sliceDebounceTimer = null
 
 async function triggerSlice() {
   if (!meshData.value) return
+  clearIslandState()
   sliceSlicing.value = true
   sliceProgress.value = { current: 0, total: 0 }
 
@@ -342,6 +353,8 @@ async function triggerSlice() {
   sliceLayerCount.value = msg.result.layer_count
   sliceWarningCount.value = msg.result.warning_count
   sliceReady = true
+
+  detectIslands()
 
   if (sliceInspecting.value && sliceLayerCount.value > 0) {
     fetchLayer(sliceCurrentLayer.value)
@@ -377,12 +390,66 @@ async function toggleSliceInspect() {
     sliceInspecting.value = true
     sliceCurrentLayer.value = 0
     fetchLayer(0)
+    fetchIslandLayer(0)
   }
 }
 
 function onSliceLayerChange(index) {
   sliceCurrentLayer.value = index
   fetchLayer(index)
+  fetchIslandLayer(index)
+}
+
+async function detectIslands() {
+  if (!meshData.value || !sliceReady) return
+  islandDetecting.value = true
+
+  const msg = await sendCommand('detect_islands', {})
+
+  islandDetecting.value = false
+  if (!msg || !msg.ok) {
+    if (msg && msg.error && msg.error.code !== 'CANCELLED') {
+      errorMessage.value = msg ? formatError(msg, 'Island detection failed') : 'Island detection failed'
+    }
+    islandResult.value = null
+    return
+  }
+
+  islandResult.value = {
+    totalCount: msg.result.total_island_count,
+    worstLayer: msg.result.worst_layer_index,
+    maxSeverity: msg.result.max_severity,
+    severityScores: msg.result.severity_scores,
+    islandLayerCount: msg.result.island_layer_count,
+  }
+
+  if (sliceInspecting.value) {
+    fetchIslandLayer(sliceCurrentLayer.value)
+  }
+}
+
+async function fetchIslandLayer(index) {
+  if (!islandResult.value || index < 0) {
+    currentLayerIslands.value = null
+    return
+  }
+  const msg = await sendCommand('get_island_layer', { layer_index: index })
+  if (!msg || !msg.ok) {
+    currentLayerIslands.value = null
+    return
+  }
+  currentLayerIslands.value = {
+    islands: msg.result.islands,
+    count: msg.result.island_count,
+    area: msg.result.total_island_area,
+    severity: msg.result.severity,
+  }
+}
+
+function clearIslandState() {
+  islandResult.value = null
+  currentLayerIslands.value = null
+  islandDetecting.value = false
 }
 
 function onLayerHeightChange(height) {
@@ -421,6 +488,7 @@ async function doUndo() {
       overhangIndices.value = null
       overhangData.value = null
       clearOrientationCache()
+      clearIslandState()
     } else if (overhangEnabled.value && meshData.value) {
       scheduleOverhangAnalysis()
     }

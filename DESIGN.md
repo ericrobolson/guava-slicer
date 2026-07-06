@@ -55,6 +55,7 @@ Detailed subsystem designs live in `designs/`:
 - [Undo/Redo & Model Transforms](designs/undo-redo.md) — command pattern, undo/redo stack, transform commands (rotate, translate, scale)
 - [Overhang Analysis & Auto-Orientation](designs/overhang-analysis.md) — overhang detection algorithm, auto-orient search, IPC commands, frontend overlay
 - [Slicing Engine](designs/slicing-engine.md) — mesh-plane intersection, contour assembly, layer inspection mode, IPC commands
+- [Island Detection](designs/island-detection.md) — unsupported region detection, Clipper2 overlap test, severity scoring, sparkline visualization
 
 ## Architecture
 

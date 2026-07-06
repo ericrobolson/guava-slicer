@@ -14,22 +14,28 @@
 
     <div v-if="sliceInspecting && sliceLayerCount > 0" class="layer-slider">
       <div class="layer-label">{{ sliceCurrentLayer + 1 }}</div>
-      <input
-        type="range"
-        class="slider-track"
-        :min="0"
-        :max="sliceLayerCount - 1"
-        :value="sliceCurrentLayer"
-        orient="vertical"
-        @input="onSliderInput"
-      />
+      <div class="slider-sparkline-row">
+        <input
+          type="range"
+          class="slider-track"
+          :min="0"
+          :max="sliceLayerCount - 1"
+          :value="sliceCurrentLayer"
+          orient="vertical"
+          @input="onSliderInput"
+        />
+        <canvas
+          ref="sparklineCanvas"
+          class="sparkline-bar"
+        ></canvas>
+      </div>
       <div class="layer-label bottom">1</div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { TransformControls } from 'three/addons/controls/TransformControls.js'
@@ -45,6 +51,8 @@ const props = defineProps({
   sliceContours: { type: Array, default: null },
   sliceLayerCount: { type: Number, default: 0 },
   sliceCurrentLayer: { type: Number, default: 0 },
+  islandContourIndices: { type: Array, default: null },
+  severityScores: { type: Array, default: null },
 })
 
 const emit = defineEmits(['drop-file', 'orient', 'update:sliceLayer'])
@@ -70,6 +78,8 @@ let baseScale = null
 let gizmoDragging = false
 let clippingPlane = null
 let contourLineObject = null
+let islandOverlayObject = null
+const sparklineCanvas = ref(null)
 
 const ORBIT_STEP_DEG = 15
 const BUILD_PLATE_SIZE = 256
@@ -102,6 +112,11 @@ const CHECKER_SIZE = 3.0
 const CHECKER_OPACITY = 0.85
 const CONTOUR_COLOR = 0x00ff88
 const CONTOUR_LINE_WIDTH = 2
+const ISLAND_COLOR = 0xff4444
+const ISLAND_OPACITY = 0.35
+const SPARKLINE_WIDTH = 16
+const SPARKLINE_COLOR_LOW = [255, 180, 60]
+const SPARKLINE_COLOR_HIGH = [255, 50, 50]
 
 const overhangVertexShader = `
   varying vec3 vObjPos;
@@ -405,6 +420,92 @@ function updateContourOverlay(contours, y) {
   scene.add(contourLineObject)
 }
 
+function clearIslandOverlay() {
+  if (islandOverlayObject) {
+    scene.remove(islandOverlayObject)
+    islandOverlayObject.geometry.dispose()
+    islandOverlayObject.material.dispose()
+    islandOverlayObject = null
+  }
+}
+
+/// @brief Render red filled triangles for island (unsupported) contours at the given Y height.
+function updateIslandOverlay(contours, islandIndices, y) {
+  clearIslandOverlay()
+  if (!contours || !islandIndices || islandIndices.length === 0) return
+
+  const indexSet = new Set(islandIndices)
+  const vertices = []
+
+  for (const idx of indexSet) {
+    if (idx >= contours.length) continue
+    const pts = contours[idx].points
+    if (pts.length < 3) continue
+
+    for (let i = 1; i < pts.length - 1; i++) {
+      vertices.push(pts[0][0], y + 0.06, pts[0][1])
+      vertices.push(pts[i][0], y + 0.06, pts[i][1])
+      vertices.push(pts[i + 1][0], y + 0.06, pts[i + 1][1])
+    }
+  }
+
+  if (vertices.length === 0) return
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3))
+  geometry.computeVertexNormals()
+
+  const material = new THREE.MeshBasicMaterial({
+    color: ISLAND_COLOR,
+    transparent: true,
+    opacity: ISLAND_OPACITY,
+    side: THREE.DoubleSide,
+    depthTest: false,
+  })
+
+  islandOverlayObject = new THREE.Mesh(geometry, material)
+  islandOverlayObject.renderOrder = 1000
+  scene.add(islandOverlayObject)
+}
+
+function renderSparkline(scores) {
+  const canvas = sparklineCanvas.value
+  if (!canvas) return
+
+  const rect = canvas.getBoundingClientRect()
+  const h = Math.round(rect.height)
+  const w = Math.round(rect.width)
+  if (h <= 0 || w <= 0) return
+
+  canvas.width = w
+  canvas.height = h
+
+  const ctx = canvas.getContext('2d')
+  ctx.clearRect(0, 0, w, h)
+
+  if (!scores || scores.length === 0) return
+
+  const maxScore = Math.max(...scores)
+  if (maxScore <= 0) return
+
+  const barH = h / scores.length
+
+  for (let i = 0; i < scores.length; i++) {
+    const s = scores[i]
+    if (s <= 0) continue
+
+    const t = s / maxScore
+    const r = Math.round(SPARKLINE_COLOR_LOW[0] + t * (SPARKLINE_COLOR_HIGH[0] - SPARKLINE_COLOR_LOW[0]))
+    const g = Math.round(SPARKLINE_COLOR_LOW[1] + t * (SPARKLINE_COLOR_HIGH[1] - SPARKLINE_COLOR_LOW[1]))
+    const b = Math.round(SPARKLINE_COLOR_LOW[2] + t * (SPARKLINE_COLOR_HIGH[2] - SPARKLINE_COLOR_LOW[2]))
+    const barW = Math.max(2, Math.round(t * w))
+
+    const yPos = h - (i + 1) * barH
+    ctx.fillStyle = `rgba(${r},${g},${b},0.9)`
+    ctx.fillRect(0, yPos, barW, Math.max(1, Math.ceil(barH)))
+  }
+}
+
 function onSliderInput(e) {
   const value = parseInt(e.target.value, 10)
   emit('update:sliceLayer', value)
@@ -688,9 +789,14 @@ watch(() => props.sliceInspecting, (inspecting) => {
   if (inspecting) {
     enableClippingPlane(props.sliceLayerZ)
     updateContourOverlay(props.sliceContours, props.sliceLayerZ)
+    updateIslandOverlay(props.sliceContours, props.islandContourIndices, props.sliceLayerZ)
+    nextTick(() => {
+      requestAnimationFrame(() => renderSparkline(props.severityScores))
+    })
   } else {
     disableClippingPlane()
     clearContourOverlay()
+    clearIslandOverlay()
   }
 })
 
@@ -700,10 +806,17 @@ watch(() => props.sliceLayerZ, (z) => {
   }
 })
 
-watch(() => props.sliceContours, (contours) => {
+watch([() => props.sliceContours, () => props.islandContourIndices], ([contours, indices]) => {
   if (props.sliceInspecting) {
     updateContourOverlay(contours, props.sliceLayerZ)
+    updateIslandOverlay(contours, indices, props.sliceLayerZ)
   }
+})
+
+watch(() => props.severityScores, (scores) => {
+  nextTick(() => {
+    requestAnimationFrame(() => renderSparkline(scores))
+  })
 })
 
 onMounted(() => { init(); container.value.focus() })
@@ -714,6 +827,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', onResize)
   clearOverhangOverlay()
   clearContourOverlay()
+  clearIslandOverlay()
   disableClippingPlane()
   if (overhangMaterial) overhangMaterial.dispose()
   if (meshObject) {
@@ -754,6 +868,23 @@ onBeforeUnmount(() => {
   z-index: 15;
 }
 
+.slider-sparkline-row {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 4px;
+  min-height: 0;
+}
+
+.sparkline-bar {
+  width: 16px;
+  height: 100%;
+  border-radius: 2px;
+  background: rgba(60, 40, 40, 0.6);
+  border: 1px solid rgba(255, 80, 80, 0.2);
+}
+
 .layer-label {
   font-size: 11px;
   font-weight: 600;
@@ -765,12 +896,12 @@ onBeforeUnmount(() => {
 }
 
 .slider-track {
-  flex: 1;
   writing-mode: vertical-lr;
   direction: rtl;
   appearance: none;
   -webkit-appearance: none;
   width: 24px;
+  height: 100%;
   background: transparent;
   cursor: pointer;
 }

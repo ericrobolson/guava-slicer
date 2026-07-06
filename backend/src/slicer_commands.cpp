@@ -176,6 +176,12 @@ static void handle_get_layer(const std::string& id, const ipc::json& params) {
     });
 }
 
+void with_cached_result(
+    const std::function<void(const slicer::SliceResult& result, bool has_result)>& fn) {
+    std::lock_guard<std::mutex> lock(s_result_mutex);
+    fn(s_cached_result, s_has_result);
+}
+
 void register_all() {
     ipc::register_command("slice", handle_slice);
     ipc::register_command("get_layer", handle_get_layer);

@@ -117,18 +117,27 @@ Intersect mesh with Y-planes (Y is vertical axis), produce contour polygons per 
 
 ---
 
-## Phase 6: Island Detection
+## Phase 6: Island Detection ✓ DONE
 Identify unsupported regions per layer.
 
 **Deliverables**:
-- [ ] Connected component labeling on each layer's contour polygons
-- [ ] Overlap test: check each component in layer N against all components in layer N-1
-- [ ] No-overlap components flagged as islands
-- [ ] Islands highlighted in layer preview (red fill/outline)
-- [ ] Islands highlighted in 3D viewport (colored overlay on mesh)
-- [ ] Detection speed tiers: fast (skip layers), normal, full (every layer)
-- [ ] Island count summary per layer in UI
-- [ ] Threaded detection with progress streaming
+- [x] Connected component labeling on each layer's contour polygons
+- [x] Overlap test: check each component in layer N against all components in layer N-1
+- [x] No-overlap components flagged as islands
+- [x] Islands highlighted in layer preview (red fill overlay)
+- [ ] Islands highlighted in 3D viewport (colored overlay on mesh) — deferred
+- [ ] Detection speed tiers: fast (skip layers), normal, full (every layer) — deferred
+- [x] Island count summary per layer in UI
+- [x] Threaded detection with progress streaming
+- [x] Severity sparkline on layer slider (combined count + area score)
+- [x] Clickable worst-layer jump in sidebar
+- [x] Auto-detect after slice completes (background calculation)
+
+**Decisions made**:
+- [x] Polygon overlap: Clipper2 Intersect with NonZero fill rule
+- [x] Severity formula: `0.4 * count_norm + 0.6 * area_norm`, normalized per-detection
+- [x] Support tolerance: 0.001 mm² minimum intersection area
+- [x] Layer 0 always treated as supported (build plate)
 
 ---
 

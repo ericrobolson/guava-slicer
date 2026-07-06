@@ -53,6 +53,25 @@
         <span class="value">{{ warningCount }} degenerate</span>
       </div>
     </div>
+
+    <div v-if="islandDetecting" class="island-detecting">
+      <span class="progress-label">Detecting islands...</span>
+    </div>
+
+    <div v-if="inspecting && islandResult" class="island-info">
+      <div class="stat-row" :class="{ 'island-alert': islandResult.totalCount > 0 }">
+        <span class="label">Islands</span>
+        <span class="value">{{ islandResult.totalCount }}</span>
+      </div>
+      <div v-if="currentLayerIslands && currentLayerIslands.count > 0" class="stat-row island-alert">
+        <span class="label">This layer</span>
+        <span class="value">{{ currentLayerIslands.count }} ({{ currentLayerIslands.area.toFixed(2) }} mm²)</span>
+      </div>
+      <div v-if="islandResult.totalCount > 0" class="stat-row clickable" @click="$emit('jump-to-layer', islandResult.worstLayer)">
+        <span class="label">Worst layer</span>
+        <span class="value link">{{ islandResult.worstLayer + 1 }} →</span>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -72,9 +91,12 @@ const props = defineProps({
   layerHeight: { type: Number, default: 0.06 },
   warningCount: { type: Number, default: 0 },
   sliceProgress: { type: Object, default: () => ({ current: 0, total: 0 }) },
+  islandDetecting: { type: Boolean, default: false },
+  islandResult: { type: Object, default: null },
+  currentLayerIslands: { type: Object, default: null },
 })
 
-const emit = defineEmits(['toggle-inspect', 'update:layerHeight'])
+const emit = defineEmits(['toggle-inspect', 'update:layerHeight', 'jump-to-layer'])
 
 const localHeight = ref(props.layerHeight)
 
@@ -210,4 +232,25 @@ function onHeightChange() {
 }
 
 .warning .value { color: #df7d7d; }
+
+.island-detecting {
+  margin-top: 8px;
+}
+
+.island-info {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.island-alert .value { color: #ff6666; }
+.island-alert .label { color: #cc8888; }
+
+.clickable { cursor: pointer; }
+.clickable:hover .label { color: #aaa; }
+.clickable:hover .link { color: #88bbff; }
+.link { text-decoration: underline; text-underline-offset: 2px; }
 </style>

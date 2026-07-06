@@ -3,6 +3,7 @@
 #include "commands.h"
 #include "app_state.h"
 #include "ipc.h"
+#include "island_commands.h"
 #include "mesh_ops.h"
 #include "overhang.h"
 #include "slicer_commands.h"
@@ -615,6 +616,7 @@ void register_all() {
     ipc::register_command("redo", handle_redo);
 
     slicer_commands::register_all();
+    island_commands::register_all();
 }
 
 } // namespace commands

@@ -23,3 +23,11 @@ Justification: Matches the Lychee Slicer reference UI. The slider is spatially a
 Add Clipper2's 3 .cpp source files as compilation units in the existing build.zig alongside backend sources. Clipper2 uses exceptions internally, so it compiles with `cpp_flags_with_exceptions` (same pattern as stl_parser.cpp). Include path: `vendor/clipper2/include`.
 
 Justification: Zero new build targets — Clipper2 compiles as part of the backend binary with the same optimization level. The 3-file overhead is negligible. Separate static library would add complexity for no benefit at this scale.
+
+## General: Background Auto-Calculation
+
+**Decision: Auto-run analysis calculations in the background**
+
+Any computation that derives from existing state (overhang analysis, slicing, island detection, orientation precomputation) should auto-trigger in the background when its inputs change — never require the user to manually initiate. The frontend shows progress indicators during computation and updates results when complete.
+
+Justification: The user expects analysis to stay in sync with model state. Manual "detect" buttons add friction and create stale-data bugs when the user forgets to re-run after a transform. Background auto-calculation with progress streaming is already the established pattern (auto-slice on mesh load/transform, precompute orientations on mesh load).
