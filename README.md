@@ -36,6 +36,21 @@ make -s clean    # remove build artifacts
 make -s cross    # cross-compile backend (macOS ARM/Intel + Windows x86_64)
 ```
 
+## Headless Support Testing
+
+A standalone CLI for testing support generation without the GUI. Runs the full pipeline (load STL → overhang analysis → slicing → island detection → support sampling → mesh generation) and exports the result as STL files.
+
+```bash
+# Build the CLI
+make -s -C backend support-test
+
+# Run against a model
+./backend/zig-out/bin/support-test input.stl supports.stl              # supports only
+./backend/zig-out/bin/support-test input.stl supports.stl combined.stl  # model + supports
+```
+
+Output includes per-stage stats (overhang count, island count, pre/post-dedup point counts, support mesh triangle count) for tuning the generation algorithm. Open the combined STL in any 3D viewer to visually inspect results.
+
 ## License
 
 See [LICENSE](LICENSE).

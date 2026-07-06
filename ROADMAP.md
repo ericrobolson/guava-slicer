@@ -125,8 +125,6 @@ Identify unsupported regions per layer.
 - [x] Overlap test: check each component in layer N against all components in layer N-1
 - [x] No-overlap components flagged as islands
 - [x] Islands highlighted in layer preview (red fill overlay)
-- [ ] Islands highlighted in 3D viewport (colored overlay on mesh) — deferred
-- [ ] Detection speed tiers: fast (skip layers), normal, full (every layer) — deferred
 - [x] Island count summary per layer in UI
 - [x] Threaded detection with progress streaming
 - [x] Severity sparkline on layer slider (combined count + area score)
@@ -142,20 +140,53 @@ Identify unsupported regions per layer.
 ---
 
 ## Phase 7: Support Generation
-Generate FDM-compatible supports and rafts.
+Generate resin-style supports: straight pillars with contact tips, tree branching, cross-bracing, and a raft base. Supports are a separate mesh rendered in a distinct color (orange/yellow) from the model (blue).
 
-**Reference**: `/Users/ericolson/Library/CloudStorage/Dropbox/3d printing/software/Resin2FDM-Lite-v1` — Resin2FDM codebase for support generation / mesh processing prior art.
+**Reference**: Vanek 2014 tree-support algorithm. Resin2FDM-Lite codebase (Blender addon, post-processes existing supports — useful for cross-bracing and tip detection prior art, not generation).
 
-**Deliverables**:
-- [ ] Support placement: click-to-place in 3D viewport (undoable)
-- [ ] Support removal: click to delete individual supports (undoable)
-- [ ] Support geometry: tree/column supports sized for FDM (configurable min radius, taper)
-- [ ] Auto-generate supports for detected islands (undoable)
-- [ ] Support mesh visually distinct from model in viewport (different color/transparency)
-- [ ] Raft generation: flat raft geometry under model + supports (undoable)
-- [ ] Raft parameters: margin, thickness, density
-- [ ] Re-slice with supports + raft included
+**Sub-phases** (sequential):
+
+### 7a: Straight Pillar Supports ✓ DONE
+- [x] Support point data structure: position, normal, pillar ID
+- [x] Support point sampling: Poisson-disc over overhang faces + island centroids (variable density by overhang severity, 1.5–6mm spacing)
+- [x] Pillar geometry generation: contact tip (sphere/cone, ~0.4mm), cylindrical shaft (~1.0mm diameter), base flare (cone widening to ~4mm)
+- [x] Pillar mesh generation as indexed triangle soup (separate from model mesh)
+- [x] IPC: `generate_supports` command with configurable params (tip diameter, shaft diameter, base diameter, spacing)
+- [x] Support mesh rendered in viewport with distinct color/transparency (orange/yellow)
+- [x] Click-to-place individual support in 3D viewport (undoable)
+- [x] Click-to-remove individual support (undoable)
+- [x] Auto-generate supports for all detected overhangs + islands (undoable)
+- [x] Threaded generation with progress streaming
+- [x] Four support categories: Islands, Reinforcement, Overhangs, Stabilization (each toggleable)
+- [x] Two-sidebar layout: left sidebar for print-prep workflow, right sidebar for model info
+- [x] Place (P) / Remove (X) hotkeys for viewport interaction modes
+
+### 7b: Raft Generation ✓ DONE
+- [x] Raft geometry: circular slab mesh, configurable thickness (default 1.5mm)
+- [x] Raft rendered as part of support mesh (same orange/yellow color)
+- [x] Raft generated as part of auto-generate supports (undoable)
+- [x] Trunks connect to raft at their flared base
+
+### 7c: Tree Branching ✓ DONE
+- [x] Vertical trunks placed around model bounding box perimeter
+- [x] Horizontal branches from nearest trunk to each contact point
+- [x] Branch tip tapers to small contact diameter at model surface
+- [x] Trunk height auto-extends to reach highest assigned contact point
+
+### 7d: Cross-Bracing ✓ DONE
+- [x] Alternating diagonal struts between adjacent trunks
+- [x] Strut diameter: 0.5× main shaft
+- [x] Vertical spacing: 8mm between braces
+- [x] Only between trunks within 1.5× trunk spacing distance
+
+### 7e: Integration
+- [ ] Re-slice with supports + raft included in geometry
 - [ ] Re-run island detection after support placement to verify fix
+- [ ] Support parameter presets (light/medium/heavy)
+
+**Decisions to make**:
+- [ ] Pillar sizing formula for load-bearing (buckling check vs. fixed defaults)
+- [ ] Per-layer peel-force optimization (stagger contact Z-heights to reduce force spikes)
 
 ---
 
@@ -204,3 +235,12 @@ Cut a model into multiple pieces along user-defined planes, with connectors (pin
 - [ ] Boolean library (Clipper2? CGAL? manifold? — must vendor and build under Zig)
 - [ ] Connector attachment strategy (geometry union vs. separate mesh)
 - [ ] Multi-cut ordering and interaction (can cuts intersect?)
+
+---
+
+## Phase 11: Island Detection Enhancements
+Deferred improvements to island detection from Phase 6.
+
+**Deliverables**:
+- [ ] Islands highlighted in 3D viewport (colored overlay on mesh)
+- [ ] Detection speed tiers: fast (skip layers), normal, full (every layer)

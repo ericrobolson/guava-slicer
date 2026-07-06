@@ -35,8 +35,8 @@ Open-source support preparation tool for FDM printing. Load STL models, slice la
 2. **Model transforms** — rotate, position on build plate, scale uniform/per-axis
 3. **Overhang analysis** — detect and visualize overhangs, auto-orient to minimize overhang area
 4. **Set slice parameters** — layer height
-5. **Slice** — intersect mesh with Z-planes, produce per-layer contour polygons
-6. **Step through layers** — scrub Z-slider, view cross-section at each height
+5. **Slice** — intersect mesh with Y-planes (Y is vertical axis), produce per-layer contour polygons
+6. **Step through layers** — scrub Y-slider, view cross-section at each height
 7. **Island detection** — highlight unsupported regions per layer
 8. **Place supports** — click to add/remove supports on flagged islands, or auto-generate
 9. **Generate raft** — add raft geometry under model and supports
@@ -56,6 +56,7 @@ Detailed subsystem designs live in `designs/`:
 - [Overhang Analysis & Auto-Orientation](designs/overhang-analysis.md) — overhang detection algorithm, auto-orient search, IPC commands, frontend overlay
 - [Slicing Engine](designs/slicing-engine.md) — mesh-plane intersection, contour assembly, layer inspection mode, IPC commands
 - [Island Detection](designs/island-detection.md) — unsupported region detection, Clipper2 overlap test, severity scoring, sparkline visualization
+- [Support Generation](designs/support-generation.md) — pillar supports, Poisson-disc sampling, tree branching, cross-bracing, raft generation
 
 ## Architecture
 

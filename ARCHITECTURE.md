@@ -54,7 +54,12 @@ guava-slicer/
 ├── README.md
 ├── ROADMAP.md
 ├── designs/
-│   └── ipc-protocol.md   # IPC protocol design doc
+│   ├── ipc-protocol.md        # IPC protocol design doc
+│   ├── undo-redo.md           # Command pattern and transform commands
+│   ├── overhang-analysis.md   # Overhang detection and auto-orientation
+│   ├── slicing-engine.md      # Mesh-plane intersection and contour assembly
+│   ├── island-detection.md    # Unsupported region detection
+│   └── support-generation.md  # Pillar supports, Poisson-disc sampling, categories
 ├── plans/                 # One-shot plan files
 ├── backend/
 │   ├── build.zig          # Zig build: exe, tests, cross-compilation
@@ -63,8 +68,21 @@ guava-slicer/
 │   │   ├── main.cpp       # Entry point
 │   │   ├── ipc.h          # IPC protocol: framing, send/receive, command dispatch
 │   │   ├── ipc.cpp
-│   │   ├── commands.h     # Command handler registration
-│   │   └── commands.cpp   # ping, simulate, get_binary handlers
+│   │   ├── commands.h          # Command handler registration
+│   │   ├── commands.cpp        # Core handlers: ping, load_mesh, orient, overhang, undo/redo
+│   │   ├── slicer.h/cpp        # Mesh-plane intersection, contour assembly
+│   │   ├── slicer_commands.h/cpp # IPC: slice, get_layer, cancel
+│   │   ├── island_detection.h/cpp # Connected component island detection
+│   │   ├── island_commands.h/cpp  # IPC: detect_islands, get_island_layer
+│   │   ├── overhang.h/cpp      # Overhang analysis and auto-orient search
+│   │   ├── support_types.h     # Support data structures (SupportPoint, SupportParams, etc.)
+│   │   ├── support_gen.h/cpp   # Support point sampling and pillar mesh generation
+│   │   ├── support_commands.h/cpp # IPC: generate/place/remove/clear supports
+│   │   ├── mesh.h              # Core mesh data structure
+│   │   ├── mesh_ops.h/cpp      # Mesh utility functions
+│   │   ├── transform.h/cpp     # Transform state and commands
+│   │   ├── app_state.h/cpp     # Global application state singleton
+│   │   └── linalg_types.h      # Shared linalg type aliases
 │   ├── tests/
 │   │   ├── main.cpp       # doctest entry point
 │   │   └── test_ipc.cpp   # IPC message shape + framing tests
@@ -81,7 +99,17 @@ guava-slicer/
     │   └── dev.cjs        # Dev launcher: starts Vite then Electron
     └── src/
         ├── main.js        # Vue app entry
-        └── App.vue        # IPC Console UI: buttons, log, progress bar
+        ├── App.vue             # Main app: two-sidebar layout, IPC orchestration
+        ├── components/
+        │   ├── Viewport.vue    # 3D viewport: Three.js, model + support mesh, orbit, gizmo
+        │   ├── Sidebar.vue     # Right sidebar: mesh info, transforms
+        │   ├── OverhangPanel.vue  # Left sidebar: overhang analysis, auto-orient
+        │   ├── SlicePanel.vue     # Left sidebar: slice controls, island results
+        │   ├── SupportPanel.vue   # Left sidebar: support controls, categories, params
+        │   └── KeybindingsModal.vue # Keybindings reference modal
+        └── utils/
+            ├── path.js         # Path utilities
+            └── transformDelta.js # Transform delta computation
 ```
 
 ## Dependency Flow

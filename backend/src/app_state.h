@@ -4,6 +4,7 @@
 
 #include "command.h"
 #include "mesh.h"
+#include "support_types.h"
 #include "transform.h"
 
 #include <nlohmann/json.hpp>
@@ -19,6 +20,7 @@ struct AppState {
     bool has_mesh = false;
     command::CommandStack commands;
     transform::TransformState transforms;
+    support::SupportCollection supports;
 };
 
 /// @brief Get the global application state.

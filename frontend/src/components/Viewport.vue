@@ -5,12 +5,14 @@
     tabindex="0"
     @keydown="onKeyDown"
     @keyup="onKeyUp"
+    @click="onViewportClick"
     @dragover.prevent="onDragOver"
     @dragleave="onDragLeave"
     @drop.prevent="onDrop"
   >
     <div v-if="dragOver" class="drop-overlay">Drop STL file here</div>
     <div v-if="holdMode" class="mode-indicator">{{ holdModeLabel }} — drag to transform, release to confirm</div>
+    <div v-else-if="supportMode" class="mode-indicator support-mode">{{ supportModeLabel }} — click to {{ supportMode }}, ESC to cancel</div>
 
     <div v-if="sliceInspecting && sliceLayerCount > 0" class="layer-slider">
       <div class="layer-label">{{ sliceCurrentLayer + 1 }}</div>
@@ -53,9 +55,11 @@ const props = defineProps({
   sliceCurrentLayer: { type: Number, default: 0 },
   islandContourIndices: { type: Array, default: null },
   severityScores: { type: Array, default: null },
+  supportMeshData: { type: Object, default: null },
+  supportMode: { type: String, default: null },
 })
 
-const emit = defineEmits(['drop-file', 'orient', 'update:sliceLayer'])
+const emit = defineEmits(['drop-file', 'orient', 'update:sliceLayer', 'place-support', 'remove-support'])
 
 const container = ref(null)
 const dragOver = ref(false)
@@ -68,8 +72,14 @@ const holdModeLabel = computed(() => {
   return ''
 })
 
+const supportModeLabel = computed(() => {
+  if (props.supportMode === 'place') return 'PLACE SUPPORT (P)'
+  if (props.supportMode === 'remove') return 'REMOVE SUPPORT (X)'
+  return ''
+})
+
 let scene, camera, renderer, controls, gizmo
-let meshPivot, meshObject, overhangMesh, overhangMaterial
+let meshPivot, meshObject, overhangMesh, overhangMaterial, supportMeshObject
 let axisScene, axisCamera, axisRenderer
 let animFrameId = null
 let basePosition = null
@@ -117,6 +127,10 @@ const ISLAND_OPACITY = 0.35
 const SPARKLINE_WIDTH = 16
 const SPARKLINE_COLOR_LOW = [255, 180, 60]
 const SPARKLINE_COLOR_HIGH = [255, 50, 50]
+const SUPPORT_COLOR = 0xdd8833
+const SUPPORT_EMISSIVE = 0x1a0c04
+const SUPPORT_SHININESS = 60
+const SUPPORT_OPACITY = 0.9
 
 const overhangVertexShader = `
   varying vec3 vObjPos;
@@ -468,6 +482,67 @@ function updateIslandOverlay(contours, islandIndices, y) {
   scene.add(islandOverlayObject)
 }
 
+function clearSupportMesh() {
+  if (supportMeshObject) {
+    scene.remove(supportMeshObject)
+    supportMeshObject.geometry.dispose()
+    supportMeshObject.material.dispose()
+    supportMeshObject = null
+  }
+}
+
+function loadSupportMesh(data) {
+  clearSupportMesh()
+  if (!data || data.positions.length === 0) return
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3))
+  geometry.setAttribute('normal', new THREE.BufferAttribute(data.normals, 3))
+  geometry.setIndex(new THREE.BufferAttribute(data.indices, 1))
+
+  const material = new THREE.MeshPhongMaterial({
+    color: SUPPORT_COLOR,
+    emissive: SUPPORT_EMISSIVE,
+    flatShading: true,
+    shininess: SUPPORT_SHININESS,
+    transparent: true,
+    opacity: SUPPORT_OPACITY,
+    side: THREE.DoubleSide,
+  })
+
+  supportMeshObject = new THREE.Mesh(geometry, material)
+  scene.add(supportMeshObject)
+}
+
+const raycaster = new THREE.Raycaster()
+const mouse = new THREE.Vector2()
+
+function onViewportClick(e) {
+  if (!props.supportMode || !meshObject) return
+  if (holdMode.value || gizmoDragging) return
+
+  const rect = container.value.getBoundingClientRect()
+  mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+  mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+
+  raycaster.setFromCamera(mouse, camera)
+
+  if (props.supportMode === 'place') {
+    const hits = raycaster.intersectObject(meshObject, false)
+    if (hits.length > 0) {
+      const hit = hits[0]
+      const pos = [hit.point.x, hit.point.y, hit.point.z]
+      const norm = hit.face ? [hit.face.normal.x, hit.face.normal.y, hit.face.normal.z] : [0, -1, 0]
+      emit('place-support', pos, norm)
+    }
+  } else if (props.supportMode === 'remove' && supportMeshObject) {
+    const hits = raycaster.intersectObject(supportMeshObject, false)
+    if (hits.length > 0) {
+      emit('remove-support', 0)
+    }
+  }
+}
+
 function renderSparkline(scores) {
   const canvas = sparklineCanvas.value
   if (!canvas) return
@@ -813,6 +888,8 @@ watch([() => props.sliceContours, () => props.islandContourIndices], ([contours,
   }
 })
 
+watch(() => props.supportMeshData, (data) => { loadSupportMesh(data) })
+
 watch(() => props.severityScores, (scores) => {
   nextTick(() => {
     requestAnimationFrame(() => renderSparkline(scores))
@@ -828,6 +905,7 @@ onBeforeUnmount(() => {
   clearOverhangOverlay()
   clearContourOverlay()
   clearIslandOverlay()
+  clearSupportMesh()
   disableClippingPlane()
   if (overhangMaterial) overhangMaterial.dispose()
   if (meshObject) {
@@ -854,6 +932,11 @@ onBeforeUnmount(() => {
   position: absolute; top: 8px; left: 8px; padding: 4px 10px;
   background: rgba(34, 34, 58, 0.9); border: 1px solid #555; border-radius: 4px;
   color: #eee; font-size: 12px; font-weight: 600; pointer-events: none; z-index: 5;
+}
+
+.mode-indicator.support-mode {
+  border-color: #cc8833;
+  color: #ffcc88;
 }
 
 .layer-slider {

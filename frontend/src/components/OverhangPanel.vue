@@ -128,6 +128,12 @@ function formatPercent(part, total) {
   padding: 0 16px 16px;
 }
 
+.overhang-panel:first-child .section-header:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
 h2 {
   font-size: 14px;
   font-weight: 600;

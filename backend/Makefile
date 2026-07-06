@@ -1,4 +1,4 @@
-.PHONY: build test clean cross
+.PHONY: build test clean cross support-test
 
 build:
 	@zig build -Doptimize=ReleaseFast
@@ -11,3 +11,6 @@ clean:
 
 cross:
 	@zig build cross -Doptimize=ReleaseFast
+
+support-test:
+	@zig build support-test -Doptimize=ReleaseFast

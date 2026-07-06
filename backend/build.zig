@@ -86,7 +86,7 @@ fn configureExe(
         }),
     });
 
-    const src_files = collectCppSourcesExcluding(b, "src", "src/stl_parser.cpp");
+    const src_files = collectCppSourcesExcludingMultiple(b, "src", &.{ "src/stl_parser.cpp", "src/main_support_test.cpp" });
     exe.root_module.addCSourceFiles(.{
         .files = src_files,
         .flags = cpp_flags,
@@ -147,8 +147,7 @@ pub fn build(b: *std.Build) void {
         .flags = &.{ "-std=c++17", "-Wall", "-Wextra" },
     });
 
-    // Exclude main.cpp and stl_parser.cpp from standard flags
-    const test_src_files = collectCppSourcesExcludingMultiple(b, "src", &.{ "src/main.cpp", "src/stl_parser.cpp" });
+    const test_src_files = collectCppSourcesExcludingMultiple(b, "src", &.{ "src/main.cpp", "src/main_support_test.cpp", "src/stl_parser.cpp" });
     test_exe.root_module.addCSourceFiles(.{
         .files = test_src_files,
         .flags = cpp_flags,
@@ -173,6 +172,40 @@ pub fn build(b: *std.Build) void {
 
     const run_tests = b.addRunArtifact(test_exe);
     test_step.dependOn(&run_tests.step);
+
+    // Support test CLI (headless)
+    const support_test_step = b.step("support-test", "Build support generation test CLI");
+    const support_test_exe = b.addExecutable(.{
+        .name = "support-test",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .link_libcpp = true,
+        }),
+    });
+
+    const st_src = collectCppSourcesExcludingMultiple(b, "src", &.{ "src/main.cpp", "src/main_support_test.cpp", "src/stl_parser.cpp" });
+    support_test_exe.root_module.addCSourceFiles(.{
+        .files = st_src,
+        .flags = cpp_flags,
+    });
+    support_test_exe.root_module.addCSourceFiles(.{
+        .files = &.{ "src/stl_parser.cpp", "src/main_support_test.cpp" },
+        .flags = cpp_flags_with_exceptions,
+    });
+    support_test_exe.root_module.addCSourceFiles(.{
+        .files = &.{
+            "vendor/clipper2/src/clipper.engine.cpp",
+            "vendor/clipper2/src/clipper.offset.cpp",
+            "vendor/clipper2/src/clipper.rectclip.cpp",
+        },
+        .flags = cpp_flags_with_exceptions,
+    });
+    support_test_exe.root_module.addIncludePath(b.path("src"));
+    support_test_exe.root_module.addSystemIncludePath(b.path("vendor"));
+    support_test_exe.root_module.addSystemIncludePath(b.path("vendor/clipper2/include"));
+    const st_install = b.addInstallArtifact(support_test_exe, .{});
+    support_test_step.dependOn(&st_install.step);
 
     // Cross-compilation step
     const cross_step = b.step("cross", "Cross-compile for all supported targets");

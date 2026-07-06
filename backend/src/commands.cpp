@@ -4,6 +4,7 @@
 #include "app_state.h"
 #include "ipc.h"
 #include "island_commands.h"
+#include "support_commands.h"
 #include "mesh_ops.h"
 #include "overhang.h"
 #include "slicer_commands.h"
@@ -617,6 +618,7 @@ void register_all() {
 
     slicer_commands::register_all();
     island_commands::register_all();
+    support_commands::register_all();
 }
 
 } // namespace commands

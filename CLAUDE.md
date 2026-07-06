@@ -101,6 +101,21 @@ After implementing a feature, completing a roadmap phase, or making architectura
 
 Do this as part of the implementation, not as a separate pass.
 
+## Headless Support Testing
+
+When iterating on support generation (sampling, geometry, dedup, mesh output), use the headless CLI to test against real STL models instead of relying on the GUI round-trip:
+
+```bash
+make -s -C backend support-test
+./backend/zig-out/bin/support-test <input.stl> <output-supports.stl> [output-combined.stl]
+```
+
+This runs the full pipeline (load → overhang analysis → slice → island detection → support sampling → dedup → mesh generation → STL export) and prints stats at each stage. Use it to:
+- Verify support counts and category breakdowns
+- Export combined model+supports STL for visual inspection in any 3D viewer
+- Compare output against presupported reference models
+- Iterate on `support_gen.cpp` without reloading the Electron app
+
 ## Verification Checklist
 
 Before any commit:

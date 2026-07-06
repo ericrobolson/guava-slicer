@@ -37,30 +37,7 @@
     </div>
 
     <div class="main-content">
-      <Viewport
-        :meshData="meshData"
-        :transformMatrix="transformState.matrix"
-        :overhangIndices="overhangIndices"
-        :overhangVisible="overhangEnabled"
-        :sliceInspecting="sliceInspecting"
-        :sliceLayerZ="sliceCurrentZ"
-        :sliceContours="sliceContours"
-        :sliceLayerCount="sliceLayerCount"
-        :sliceCurrentLayer="sliceCurrentLayer"
-        :islandContourIndices="currentLayerIslands ? currentLayerIslands.islands.map(i => i.contour_index) : null"
-        :severityScores="islandResult ? islandResult.severityScores : null"
-        @drop-file="loadFromPath"
-        @orient="onOrient"
-        @update:sliceLayer="onSliceLayerChange"
-      />
-      <div class="sidebar-area">
-        <Sidebar
-          :stats="meshStats"
-          :filePath="filePath"
-          :transformState="transformState"
-          :hasMesh="!!meshData"
-          @orient="onOrient"
-        />
+      <div class="left-sidebar-area">
         <OverhangPanel
           :hasMesh="!!meshData"
           :enabled="overhangEnabled"
@@ -91,6 +68,47 @@
           @jump-to-layer="onSliceLayerChange"
           @update:layerHeight="onLayerHeightChange"
         />
+        <SupportPanel
+          :hasMesh="!!meshData"
+          :generating="supportGenerating"
+          :supportResult="supportResult"
+          :interactionMode="supportMode"
+          :genProgress="supportProgress"
+          @auto-generate="autoGenerateSupports"
+          @set-mode="onSupportModeChange"
+          @clear-supports="clearSupports"
+          @update:params="onSupportParamsChange"
+          @update:categories="onSupportCategoriesChange"
+        />
+      </div>
+      <Viewport
+        :meshData="meshData"
+        :transformMatrix="transformState.matrix"
+        :overhangIndices="overhangIndices"
+        :overhangVisible="overhangEnabled"
+        :sliceInspecting="sliceInspecting"
+        :sliceLayerZ="sliceCurrentZ"
+        :sliceContours="sliceContours"
+        :sliceLayerCount="sliceLayerCount"
+        :sliceCurrentLayer="sliceCurrentLayer"
+        :islandContourIndices="currentLayerIslands ? currentLayerIslands.islands.map(i => i.contour_index) : null"
+        :severityScores="islandResult ? islandResult.severityScores : null"
+        :supportMeshData="supportMeshData"
+        :supportMode="supportMode"
+        @drop-file="loadFromPath"
+        @orient="onOrient"
+        @update:sliceLayer="onSliceLayerChange"
+        @place-support="onPlaceSupport"
+        @remove-support="onRemoveSupport"
+      />
+      <div class="sidebar-area">
+        <Sidebar
+          :stats="meshStats"
+          :filePath="filePath"
+          :transformState="transformState"
+          :hasMesh="!!meshData"
+          @orient="onOrient"
+        />
       </div>
     </div>
 
@@ -104,6 +122,7 @@ import Viewport from './components/Viewport.vue'
 import Sidebar from './components/Sidebar.vue'
 import OverhangPanel from './components/OverhangPanel.vue'
 import SlicePanel from './components/SlicePanel.vue'
+import SupportPanel from './components/SupportPanel.vue'
 import KeybindingsModal from './components/KeybindingsModal.vue'
 import { basename } from './utils/path.js'
 
@@ -147,6 +166,16 @@ let sliceReady = false
 const islandDetecting = ref(false)
 const islandResult = ref(null)
 const currentLayerIslands = ref(null)
+
+const supportGenerating = ref(false)
+const supportResult = ref(null)
+const supportMeshData = ref(null)
+const supportMode = ref(null)
+const supportProgress = ref({ phase: '', step: 0, total: 4 })
+let supportParams = {
+  tip_diameter: 0.3, shaft_diameter: 0.8, base_diameter: 3.0, spacing: 2.0,
+  enabled_categories: 15,
+}
 
 const pendingCallbacks = new Map()
 const progressCallbacks = new Map()
@@ -508,6 +537,106 @@ async function doRedo() {
   }
 }
 
+async function autoGenerateSupports() {
+  if (!meshData.value) return
+  supportGenerating.value = true
+  supportProgress.value = { phase: '', step: 0, total: 4 }
+
+  const msg = await sendCommand('generate_supports', {
+    ...supportParams,
+    threshold: overhangThreshold.value,
+  }, (data) => {
+    if (data.phase !== undefined) {
+      supportProgress.value = { phase: data.phase, step: data.step || 0, total: data.total || 4 }
+    }
+  })
+
+  supportGenerating.value = false
+  if (!msg || !msg.ok) {
+    if (msg && msg.error && msg.error.code !== 'CANCELLED') {
+      errorMessage.value = msg ? formatError(msg, 'Support generation failed') : 'Support generation failed'
+    }
+    return
+  }
+
+  updateTransformState(msg.result)
+  updateSupportResult(msg.result.supports)
+
+  if (msg.result.binary_follows && msg._binaryPaths && msg._binaryPaths.length >= 3) {
+    loadSupportMesh(msg._binaryPaths)
+  } else {
+    supportMeshData.value = null
+  }
+}
+
+function updateSupportResult(data) {
+  if (!data) { supportResult.value = null; return }
+  supportResult.value = {
+    totalCount: data.total_count,
+    islandCount: data.island_count,
+    reinforcementCount: data.reinforcement_count,
+    overhangCount: data.overhang_count,
+    stabilizationCount: data.stabilization_count,
+    vertexCount: data.vertex_count,
+    triangleCount: data.triangle_count,
+  }
+}
+
+function loadSupportMesh(binaryPaths) {
+  const positions = new Float32Array(window.electronIPC.readBinaryFile(binaryPaths[0]))
+  const normals = new Float32Array(window.electronIPC.readBinaryFile(binaryPaths[1]))
+  const indices = new Uint32Array(window.electronIPC.readBinaryFile(binaryPaths[2]))
+  supportMeshData.value = { positions, normals, indices }
+}
+
+async function onPlaceSupport(position, normal) {
+  const msg = await sendCommand('place_support', { position, normal })
+  if (!msg || !msg.ok) {
+    if (msg) errorMessage.value = formatError(msg, 'Place support failed')
+    return
+  }
+  updateTransformState(msg.result)
+  updateSupportResult(msg.result.supports)
+  if (msg.result.binary_follows && msg._binaryPaths && msg._binaryPaths.length >= 3) {
+    loadSupportMesh(msg._binaryPaths)
+  }
+}
+
+async function onRemoveSupport(supportId) {
+  const msg = await sendCommand('remove_support', { support_id: supportId })
+  if (!msg || !msg.ok) {
+    if (msg) errorMessage.value = formatError(msg, 'Remove support failed')
+    return
+  }
+  updateTransformState(msg.result)
+  updateSupportResult(msg.result.supports)
+  if (msg.result.binary_follows && msg._binaryPaths && msg._binaryPaths.length >= 3) {
+    loadSupportMesh(msg._binaryPaths)
+  } else {
+    supportMeshData.value = null
+  }
+}
+
+async function clearSupports() {
+  const msg = await sendCommand('clear_supports', {})
+  if (!msg || !msg.ok) return
+  updateTransformState(msg.result)
+  updateSupportResult(msg.result.supports)
+  supportMeshData.value = null
+}
+
+function onSupportModeChange(mode) {
+  supportMode.value = mode
+}
+
+function onSupportParamsChange(params) {
+  supportParams = { ...params }
+}
+
+function onSupportCategoriesChange(categories) {
+  supportParams.enabled_categories = categories
+}
+
 function onGlobalKeyDown(e) {
   const ctrl = e.ctrlKey || e.metaKey
   const key = e.key.toLowerCase()
@@ -520,10 +649,20 @@ function onGlobalKeyDown(e) {
   } else if (ctrl && key === 'y') {
     e.preventDefault()
     doRedo()
-  } else if (key === 'escape' && sliceInspecting.value) {
+  } else if (key === 'p' && !ctrl) {
     e.preventDefault()
-    sliceInspecting.value = false
-    sliceContours.value = null
+    supportMode.value = supportMode.value === 'place' ? null : 'place'
+  } else if (key === 'x' && !ctrl) {
+    e.preventDefault()
+    supportMode.value = supportMode.value === 'remove' ? null : 'remove'
+  } else if (key === 'escape') {
+    e.preventDefault()
+    if (supportMode.value) {
+      supportMode.value = null
+    } else if (sliceInspecting.value) {
+      sliceInspecting.value = false
+      sliceContours.value = null
+    }
   }
 }
 
@@ -688,6 +827,15 @@ body {
   display: flex;
   flex: 1;
   overflow: hidden;
+}
+
+.left-sidebar-area {
+  width: 240px;
+  background: #1e1e36;
+  border-right: 1px solid #333;
+  overflow-y: auto;
+  flex-shrink: 0;
+  padding-top: 8px;
 }
 
 .sidebar-area {
