@@ -4,9 +4,11 @@
 #include "app_state.h"
 #include "ipc.h"
 #include "mesh_ops.h"
+#include "overhang.h"
 #include "stl_parser.h"
 #include "transform.h"
 
+#include <atomic>
 #include <cstdint>
 #include <thread>
 #include <vector>
@@ -354,12 +356,260 @@ static void handle_redo(const std::string& id, const ipc::json& /*params*/) {
     ipc::send_ok(id, app_state::undo_redo_response(state, action));
 }
 
+/// @brief Cancellation flag for auto-orient (shared between handler and cancel command).
+static std::atomic<bool> s_auto_orient_cancel{false};
+
+/// @brief Guard: send NO_MESH error and return false if no mesh is loaded.
+static bool require_mesh(const std::string& id) {
+    if (!app_state::get().has_mesh) {
+        ipc::send_error(id, "NO_MESH", "no mesh loaded");
+        return false;
+    }
+    return true;
+}
+
+/// @brief Parse and validate the "threshold" param. Returns false on invalid value.
+static bool parse_threshold(const std::string& id, const ipc::json& params, float& threshold) {
+    threshold = overhang::DEFAULT_THRESHOLD_DEG;
+    if (params.contains("threshold") && params["threshold"].is_number()) {
+        threshold = params["threshold"].get<float>();
+        if (threshold < overhang::MIN_THRESHOLD_DEG || threshold > overhang::MAX_THRESHOLD_DEG) {
+            ipc::send_error(id, "INVALID_PARAMS",
+                "threshold must be between 0 and 90 degrees");
+            return false;
+        }
+    }
+    return true;
+}
+
+/// @brief Analyze overhangs handler — synchronous, returns overhang indices as binary.
+static void handle_analyze_overhangs(const std::string& id, const ipc::json& params) {
+    if (!require_mesh(id)) return;
+
+    float threshold;
+    if (!parse_threshold(id, params, threshold)) return;
+
+    auto& state = app_state::get();
+    const auto& m = state.mesh;
+    auto result = overhang::analyze(
+        m.vertices.data(), m.indices.data(),
+        m.vertex_count, m.triangle_count,
+        state.transforms.composite_matrix(), threshold);
+
+    uint32_t count = static_cast<uint32_t>(result.triangle_indices.size());
+
+    if (count > 0) {
+        ipc::send_binary(
+            reinterpret_cast<const uint8_t*>(result.triangle_indices.data()),
+            count * sizeof(uint32_t));
+    }
+
+    ipc::send_ok(id, {
+        {"overhang_count", count},
+        {"overhang_area", result.overhang_area},
+        {"total_area", result.total_area},
+        {"threshold_deg", result.threshold_deg},
+        {"binary_follows", count > 0},
+    });
+}
+
+/// @brief Command that replaces all transforms with an auto-orient rotation + place on plate.
+struct AutoOrientCommand : command::Command {
+    transform::TransformState::Snapshot previous;
+    transform::TransformState::Entry rotation_entry;
+    transform::TransformState& tstate;
+    mesh::Mesh& mesh;
+
+    AutoOrientCommand(
+        overhang::Vec4 quat, transform::TransformState& ts, mesh::Mesh& m)
+        : tstate(ts), mesh(m) {
+        rotation_entry = transform::TransformState::make_matrix(linalg::rotation_matrix(quat));
+    }
+
+    void execute() override {
+        previous = tstate.snapshot();
+        tstate.clear();
+        tstate.push(rotation_entry);
+        float dy = -mesh_ops::min_transformed_y(
+            mesh.vertices.data(), mesh.vertex_count,
+            tstate.composite_matrix());
+        if (std::abs(dy) > 1e-6f) {
+            tstate.push(transform::TransformState::make_translate({0, dy, 0}));
+        }
+    }
+
+    void undo() override {
+        tstate.restore(previous);
+    }
+
+    std::string name() const override { return "Auto Orient"; }
+};
+
+/// @brief Auto-orient handler — runs on a worker thread, streams progress.
+static void handle_auto_orient(const std::string& id, const ipc::json& params) {
+    if (!require_mesh(id)) return;
+
+    float threshold;
+    if (!parse_threshold(id, params, threshold)) return;
+
+    overhang::PreferredAxis axis = overhang::PreferredAxis::TILT_BACK;
+    if (params.contains("preferred_axis") && params["preferred_axis"].is_string()) {
+        std::string axis_str = params["preferred_axis"].get<std::string>();
+        if (!overhang::parse_preferred_axis(axis_str.c_str(), axis)) {
+            ipc::send_error(id, "INVALID_PARAMS",
+                "invalid preferred_axis: " + axis_str);
+            return;
+        }
+    }
+
+    s_auto_orient_cancel.store(false, std::memory_order_relaxed);
+
+    std::thread worker([id, threshold, axis]() {
+        auto& state = app_state::get();
+        const auto& m = state.mesh;
+
+        ipc::log_debug("auto_orient: starting search");
+
+        auto progress_cb = [&id](uint32_t current, uint32_t total) {
+            ipc::send_progress(id, {{"current", current}, {"total", total}});
+        };
+
+        auto result = overhang::find_best_orientation(
+            m.vertices.data(), m.indices.data(),
+            m.vertex_count, m.triangle_count,
+            threshold, axis, progress_cb, &s_auto_orient_cancel);
+
+        if (result.cancelled) {
+            ipc::send_error(id, "CANCELLED", "auto-orient cancelled by user");
+            ipc::log_debug("auto_orient: cancelled");
+            return;
+        }
+
+        auto cmd = std::make_unique<AutoOrientCommand>(
+            result.best_rotation, state.transforms, state.mesh);
+        state.commands.push(std::move(cmd));
+
+        auto resp = app_state::transform_response(state);
+        resp["overhang_area"] = result.overhang_area;
+        resp["total_area"] = result.total_area;
+        resp["samples_evaluated"] = result.samples_evaluated;
+
+        ipc::send_ok(id, resp);
+        ipc::log_debug("auto_orient: complete, samples=" +
+                        std::to_string(result.samples_evaluated));
+    });
+    worker.detach();
+}
+
+/// @brief Cancel auto-orient handler.
+static void handle_cancel_auto_orient(const std::string& id, const ipc::json& /*params*/) {
+    s_auto_orient_cancel.store(true, std::memory_order_relaxed);
+    ipc::send_ok(id, {{"cancelled", true}});
+}
+
+static constexpr int AXIS_COUNT = 5;
+static const char* AXIS_NAMES[AXIS_COUNT] = {
+    "tilt_back", "tilt_forward", "tilt_left", "tilt_right", "any"};
+static const overhang::PreferredAxis AXIS_VALUES[AXIS_COUNT] = {
+    overhang::PreferredAxis::TILT_BACK,
+    overhang::PreferredAxis::TILT_FORWARD,
+    overhang::PreferredAxis::TILT_LEFT,
+    overhang::PreferredAxis::TILT_RIGHT,
+    overhang::PreferredAxis::ANY,
+};
+
+/// @brief Precompute orientations for all axes — streams each result as it completes.
+static void handle_precompute_orientations(const std::string& id, const ipc::json& params) {
+    if (!require_mesh(id)) return;
+
+    float threshold;
+    if (!parse_threshold(id, params, threshold)) return;
+
+    s_auto_orient_cancel.store(false, std::memory_order_relaxed);
+
+    std::thread worker([id, threshold]() {
+        auto& state = app_state::get();
+        const auto& m = state.mesh;
+
+        ipc::json all_results = ipc::json::object();
+
+        for (int i = 0; i < AXIS_COUNT; ++i) {
+            if (s_auto_orient_cancel.load(std::memory_order_relaxed)) {
+                ipc::send_error(id, "CANCELLED", "precompute cancelled");
+                return;
+            }
+
+            ipc::send_progress(id, {
+                {"axis", AXIS_NAMES[i]}, {"status", "computing"},
+                {"index", i}, {"total", AXIS_COUNT}});
+
+            auto result = overhang::find_best_orientation(
+                m.vertices.data(), m.indices.data(),
+                m.vertex_count, m.triangle_count,
+                threshold, AXIS_VALUES[i], nullptr, &s_auto_orient_cancel);
+
+            if (result.cancelled) {
+                ipc::send_error(id, "CANCELLED", "precompute cancelled");
+                return;
+            }
+
+            ipc::json axis_result = {
+                {"rotation", {result.best_rotation.x, result.best_rotation.y,
+                              result.best_rotation.z, result.best_rotation.w}},
+                {"overhang_area", result.overhang_area},
+                {"total_area", result.total_area},
+            };
+
+            all_results[AXIS_NAMES[i]] = axis_result;
+
+            ipc::send_progress(id, {
+                {"axis", AXIS_NAMES[i]}, {"status", "done"},
+                {"index", i}, {"total", AXIS_COUNT},
+                {"result", axis_result}});
+        }
+
+        ipc::send_ok(id, {{"orientations", all_results}});
+        ipc::log_debug("precompute_orientations: complete");
+    });
+    worker.detach();
+}
+
+/// @brief Apply a pre-computed orientation quaternion (clear + rotate + place on plate).
+static void handle_apply_orientation(const std::string& id, const ipc::json& params) {
+    if (!require_mesh(id)) return;
+
+    if (!params.contains("rotation") || !params["rotation"].is_array() ||
+        params["rotation"].size() != 4) {
+        ipc::send_error(id, "INVALID_PARAMS",
+            "missing 'rotation' as [x,y,z,w] quaternion");
+        return;
+    }
+
+    overhang::Vec4 quat = {
+        params["rotation"][0].get<float>(),
+        params["rotation"][1].get<float>(),
+        params["rotation"][2].get<float>(),
+        params["rotation"][3].get<float>(),
+    };
+
+    auto& state = app_state::get();
+    auto cmd = std::make_unique<AutoOrientCommand>(quat, state.transforms, state.mesh);
+    state.commands.push(std::move(cmd));
+
+    ipc::send_ok(id, app_state::transform_response(state));
+}
+
 void register_all() {
     ipc::register_command("ping", handle_ping);
     ipc::register_command("simulate", handle_simulate);
     ipc::register_command("get_binary", handle_get_binary);
     ipc::register_command("load_mesh", handle_load_mesh);
     ipc::register_command("orient_model", handle_orient_model);
+    ipc::register_command("analyze_overhangs", handle_analyze_overhangs);
+    ipc::register_command("auto_orient", handle_auto_orient);
+    ipc::register_command("cancel_auto_orient", handle_cancel_auto_orient);
+    ipc::register_command("precompute_orientations", handle_precompute_orientations);
+    ipc::register_command("apply_orientation", handle_apply_orientation);
     ipc::register_command("undo", handle_undo);
     ipc::register_command("redo", handle_redo);
 }

@@ -1,7 +1,7 @@
 .PHONY: build test clean cross
 
 build:
-	@zig build
+	@zig build -Doptimize=ReleaseFast
 
 test:
 	@zig build test

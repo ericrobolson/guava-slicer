@@ -40,16 +40,33 @@
       <Viewport
         :meshData="meshData"
         :transformMatrix="transformState.matrix"
+        :overhangIndices="overhangIndices"
+        :overhangVisible="overhangEnabled"
         @drop-file="loadFromPath"
         @orient="onOrient"
       />
-      <Sidebar
-        :stats="meshStats"
-        :filePath="filePath"
-        :transformState="transformState"
-        :hasMesh="!!meshData"
-        @orient="onOrient"
-      />
+      <div class="sidebar-area">
+        <Sidebar
+          :stats="meshStats"
+          :filePath="filePath"
+          :transformState="transformState"
+          :hasMesh="!!meshData"
+          @orient="onOrient"
+        />
+        <OverhangPanel
+          :hasMesh="!!meshData"
+          :enabled="overhangEnabled"
+          :threshold="overhangThreshold"
+          :overhangData="overhangData"
+          :orientationCache="orientationCache"
+          :computingAxis="computingAxis"
+          :precomputeDone="precomputeDone"
+          :precomputeTotal="precomputeTotal"
+          @toggle-overlay="overhangEnabled = !overhangEnabled"
+          @update:threshold="onThresholdChange"
+          @apply-orientation="onApplyOrientation"
+        />
+      </div>
     </div>
 
     <KeybindingsModal :visible="showKeybindings" @close="showKeybindings = false" />
@@ -60,6 +77,7 @@
 import { ref, computed, reactive } from 'vue'
 import Viewport from './components/Viewport.vue'
 import Sidebar from './components/Sidebar.vue'
+import OverhangPanel from './components/OverhangPanel.vue'
 import KeybindingsModal from './components/KeybindingsModal.vue'
 import { basename } from './utils/path.js'
 
@@ -80,7 +98,17 @@ const transformState = reactive({
   redo_name: '',
 })
 
+const overhangEnabled = ref(true)
+const overhangThreshold = ref(45)
+const overhangIndices = ref(null)
+const overhangData = ref(null)
+const orientationCache = reactive({})
+const computingAxis = ref(null)
+const precomputeDone = ref(0)
+const precomputeTotal = ref(5)
+
 const pendingCallbacks = new Map()
+const progressCallbacks = new Map()
 
 const fileBaseName = computed(() => basename(filePath.value))
 const busy = computed(() => phase.value !== null)
@@ -100,11 +128,12 @@ const phaseLabel = computed(() => {
   return `Loading... ${progressPercent.value}%`
 })
 
-function sendCommand(cmd, params) {
+function sendCommand(cmd, params, onProgress) {
   return new Promise((resolve) => {
     if (!window.electronIPC) { resolve(null); return }
     const id = crypto.randomUUID()
     pendingCallbacks.set(id, resolve)
+    if (onProgress) progressCallbacks.set(id, onProgress)
     window.electronIPC.send(JSON.stringify({ cmd, id, params }))
   })
 }
@@ -152,8 +181,10 @@ function loadFromPath(path) {
 
           meshData.value = { positions, normals, indices }
           phase.value = null
-          // Auto-place on build plate so the mesh sits on the grid
-          onOrient({ type: 'place_on_plate' })
+          onOrient({ type: 'place_on_plate' }).then(() => {
+            analyzeOverhangs()
+            precomputeOrientations()
+          })
         })
       } else {
         phase.value = null
@@ -176,8 +207,92 @@ async function onOrient(params) {
   if (!msg) return
   if (msg.ok) {
     updateTransformState(msg.result)
+    if (overhangEnabled.value && meshData.value) scheduleOverhangAnalysis()
   } else {
     errorMessage.value = formatError(msg, 'Transform failed')
+  }
+}
+
+const OVERHANG_DEBOUNCE_MS = 300
+let overhangDebounceTimer = null
+
+async function analyzeOverhangs() {
+  if (!meshData.value) return
+  const msg = await sendCommand('analyze_overhangs', { threshold: overhangThreshold.value })
+  if (!msg || !msg.ok) return
+
+  const result = msg.result
+  overhangData.value = {
+    count: result.overhang_count,
+    area: result.overhang_area,
+    totalArea: result.total_area,
+  }
+
+  if (result.overhang_count > 0 && msg._binaryPaths && msg._binaryPaths.length >= 1) {
+    const buf = window.electronIPC.readBinaryFile(msg._binaryPaths[0])
+    overhangIndices.value = new Uint32Array(buf)
+  } else {
+    overhangIndices.value = null
+  }
+}
+
+function scheduleOverhangAnalysis() {
+  if (overhangDebounceTimer) clearTimeout(overhangDebounceTimer)
+  overhangDebounceTimer = setTimeout(() => { analyzeOverhangs() }, OVERHANG_DEBOUNCE_MS)
+}
+
+let precomputeDebounceTimer = null
+
+function onThresholdChange(value) {
+  overhangThreshold.value = value
+  scheduleOverhangAnalysis()
+  if (precomputeDebounceTimer) clearTimeout(precomputeDebounceTimer)
+  precomputeDebounceTimer = setTimeout(() => {
+    sendCommand('cancel_auto_orient', {}).then(() => precomputeOrientations())
+  }, 1000)
+}
+
+function clearOrientationCache() {
+  Object.keys(orientationCache).forEach(k => delete orientationCache[k])
+  precomputeDone.value = 0
+  computingAxis.value = null
+}
+
+function precomputeOrientations() {
+  if (!meshData.value) return
+  clearOrientationCache()
+
+  sendCommand(
+    'precompute_orientations',
+    { threshold: overhangThreshold.value },
+    (data) => {
+      if (data.status === 'computing') {
+        computingAxis.value = data.axis
+      } else if (data.status === 'done' && data.result) {
+        orientationCache[data.axis] = data.result
+        precomputeDone.value = (data.index || 0) + 1
+        computingAxis.value = null
+      }
+    }
+  ).then((msg) => {
+    computingAxis.value = null
+    if (msg && !msg.ok && msg.error && msg.error.code !== 'CANCELLED') {
+      errorMessage.value = formatError(msg, 'Precompute failed')
+    }
+  })
+}
+
+async function onApplyOrientation(axisKey) {
+  const cached = orientationCache[axisKey]
+  if (!cached) return
+
+  const msg = await sendCommand('apply_orientation', { rotation: cached.rotation })
+  if (!msg) return
+  if (msg.ok) {
+    updateTransformState(msg.result)
+    analyzeOverhangs()
+  } else {
+    errorMessage.value = formatError(msg, 'Apply orientation failed')
   }
 }
 
@@ -190,6 +305,11 @@ async function doUndo() {
       meshData.value = null
       meshStats.value = null
       filePath.value = ''
+      overhangIndices.value = null
+      overhangData.value = null
+      clearOrientationCache()
+    } else if (overhangEnabled.value && meshData.value) {
+      scheduleOverhangAnalysis()
     }
   } else if (msg.error && msg.error.code !== 'NOTHING_TO_UNDO') {
     errorMessage.value = formatError(msg)
@@ -201,6 +321,7 @@ async function doRedo() {
   if (!msg) return
   if (msg.ok) {
     updateTransformState(msg.result)
+    if (overhangEnabled.value && meshData.value) scheduleOverhangAnalysis()
   } else if (msg.error && msg.error.code !== 'NOTHING_TO_REDO') {
     errorMessage.value = formatError(msg)
   }
@@ -222,7 +343,12 @@ function onGlobalKeyDown(e) {
 }
 
 function handleMessage(msg) {
-  if (msg.event === 'progress' && msg.data) {
+  if (msg.event === 'progress' && msg.data && msg.id) {
+    const progressCb = progressCallbacks.get(msg.id)
+    if (progressCb) {
+      progressCb(msg.data)
+      return
+    }
     const read = msg.data.triangles_read || 0
     const total = msg.data.total || 0
     progress.value = { read, total }
@@ -236,6 +362,7 @@ function handleMessage(msg) {
   if (msg.id && pendingCallbacks.has(msg.id) && 'ok' in msg) {
     const cb = pendingCallbacks.get(msg.id)
     pendingCallbacks.delete(msg.id)
+    progressCallbacks.delete(msg.id)
     cb(msg)
   }
 }
@@ -376,5 +503,13 @@ body {
   display: flex;
   flex: 1;
   overflow: hidden;
+}
+
+.sidebar-area {
+  width: 240px;
+  background: #1e1e36;
+  border-left: 1px solid #333;
+  overflow-y: auto;
+  flex-shrink: 0;
 }
 </style>

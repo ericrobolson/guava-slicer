@@ -41,6 +41,11 @@ Transport: child_process stdio. JSON for structured messages, length-prefixed bi
 - `generate_supports` — auto-generate supports for detected islands (undoable)
 - `generate_raft` — generate raft geometry (undoable)
 - `orient_model` — rotate/translate model (undoable)
+- `analyze_overhangs` — detect overhang triangles, return indices + area metrics
+- `auto_orient` — find optimal rotation minimizing overhangs (threaded, with progress)
+- `cancel_auto_orient` — abort a running auto-orient or precompute search
+- `precompute_orientations` — compute best orientation for all 5 axes, stream results
+- `apply_orientation` — apply a pre-computed rotation quaternion (clear + rotate + place on plate)
 - `export_stl` — export model + supports as STL(s)
 - `save_project` — persist project state to file
 - `load_project` — restore project state from file

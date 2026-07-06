@@ -71,21 +71,28 @@ Model manipulation tools and the command pattern infrastructure to make them und
 
 ---
 
-## Phase 4: Overhang Analysis & Visualization
+## Phase 4: Overhang Analysis & Visualization ✓ DONE
 Detect and visualize overhanging geometry that exceeds a configurable angle threshold. Overhangs are areas where printed material extends outward over empty space without solid material directly beneath it — gravity pulls unsupported molten plastic downward, causing sagging or deformed prints. The 45-degree rule: most FDM printers handle overhangs up to ~45° from vertical, where each new layer has enough of the previous layer underneath to anchor to.
 
 **Deliverables**:
-- [ ] Overhang detection algorithm: compute face normals, flag triangles whose angle from vertical exceeds the threshold
-- [ ] Configurable overhang angle threshold (default 45°, adjustable in UI)
-- [ ] Overhang visualization in 3D viewport: checkerboard pattern overlay in yellow and black on overhang faces
-- [ ] Overhang area/volume metric displayed in sidebar
-- [ ] Real-time overhang overlay updates on every transform (rotation, scale), but only when user is not actively inputting 
-- [ ] Manual rotation to minimize overhangs — user rotates model while watching overhang overlay update live
-- [ ] Auto-solve button: automatically find the model orientation that minimizes total overhang area/volume
-- [ ] Auto-solve algorithm: sample rotations (or use optimization) to find the orientation with minimal overhang
-- [ ] Toggle overhang visualization on/off
-- [ ] IPC: `analyze_overhangs` command with angle threshold param → returns overhang triangle indices + area metric
-- [ ] Threaded analysis with progress streaming
+- [x] Overhang detection algorithm: compute face normals, flag triangles whose angle from vertical exceeds the threshold
+- [x] Configurable overhang angle threshold (default 45°, adjustable in UI)
+- [x] Overhang visualization in 3D viewport: checkerboard pattern overlay in yellow/dark on overhang faces
+- [x] Overhang area metric and % of surface displayed in sidebar
+- [x] Real-time overhang overlay updates on every transform (debounced 300ms)
+- [x] Manual rotation to minimize overhangs — user rotates model while watching overhang overlay update live
+- [x] Auto-orient with multi-objective cost function (overhang area, bottom contact area, print height, tilt bias)
+- [x] Precompute orientations for all 5 axes in background after mesh load — each axis shows resulting overhang area
+- [x] Click axis row to instantly apply pre-computed orientation
+- [x] Toggle overhang visualization on/off
+- [x] IPC: `analyze_overhangs`, `auto_orient`, `precompute_orientations`, `apply_orientation`, `cancel_auto_orient`
+- [x] Threaded analysis with progress streaming
+
+**Decisions made**:
+- [x] Overhang threshold formula: `dot(face_normal, UP) < -sin(threshold_rad)` — angle measured from vertical
+- [x] Auto-orient scoring: weighted multi-objective (overhang 1.0, bottom contact 0.5, height 0.15, tilt bias 0.1)
+- [x] Sampling: Euler sweep for preferred axis, Fibonacci lattice for "any", stride-4 subsampling during coarse, ±8° fine refinement
+- [x] Build with `-Doptimize=ReleaseFast` for the main binary (linalg template code needs optimization)
 
 ---
 
@@ -152,6 +159,7 @@ Save and load project state so work survives across sessions.
 - [ ] Dirty state tracking (unsaved changes indicator)
 - [ ] File association (.guava extension)
 - [ ] Project save captures undo stack state
+- [ ] Cache precomputed auto-orient rotations per mesh (keyed by mesh hash + threshold) — skip recomputation on reload
 
 ---
 

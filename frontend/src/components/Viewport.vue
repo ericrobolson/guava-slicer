@@ -24,6 +24,8 @@ import { computeRotationDelta, computeTranslationDelta, computeScaleDelta } from
 const props = defineProps({
   meshData: { type: Object, default: null },
   transformMatrix: { type: Array, default: null },
+  overhangIndices: { type: Uint32Array, default: null },
+  overhangVisible: { type: Boolean, default: true },
 })
 
 const emit = defineEmits(['drop-file', 'orient'])
@@ -40,7 +42,7 @@ const holdModeLabel = computed(() => {
 })
 
 let scene, camera, renderer, controls, gizmo
-let meshPivot, meshObject
+let meshPivot, meshObject, overhangMesh, overhangMaterial
 let axisScene, axisCamera, axisRenderer
 let animFrameId = null
 let basePosition = null
@@ -75,6 +77,27 @@ const AXIS_LABEL_SIZE = 14
 const ZOOM_STEP_FACTOR = 0.85
 const ROTATE_SENSITIVITY = 0.5
 const SCALE_SENSITIVITY = 0.005
+const CHECKER_SIZE = 3.0
+const CHECKER_OPACITY = 0.85
+
+const overhangVertexShader = `
+  varying vec3 vObjPos;
+  void main() {
+    vObjPos = position;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`
+const overhangFragmentShader = `
+  uniform float checkerSize;
+  uniform float opacity;
+  varying vec3 vObjPos;
+  void main() {
+    float c = mod(floor(vObjPos.x / checkerSize) + floor(vObjPos.y / checkerSize) + floor(vObjPos.z / checkerSize), 2.0);
+    vec3 yellow = vec3(1.0, 0.85, 0.0);
+    vec3 dark = vec3(0.15, 0.12, 0.0);
+    gl_FragColor = vec4(mix(dark, yellow, c), opacity);
+  }
+`
 
 function initAxisGizmo() {
   axisScene = new THREE.Scene()
@@ -272,6 +295,21 @@ function init() {
   buildPlate.position.y = -0.01
   scene.add(buildPlate)
 
+  overhangMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      checkerSize: { value: CHECKER_SIZE },
+      opacity: { value: CHECKER_OPACITY },
+    },
+    vertexShader: overhangVertexShader,
+    fragmentShader: overhangFragmentShader,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  })
+
   initAxisGizmo()
   initGizmo()
 
@@ -297,6 +335,7 @@ function onResize() {
 
 function loadMesh(data) {
   if (gizmo) gizmo.detach()
+  clearOverhangOverlay()
 
   if (meshPivot) {
     scene.remove(meshPivot)
@@ -345,6 +384,41 @@ function loadMesh(data) {
 
   gizmo.attach(meshObject)
   gizmo.setMode('translate')
+}
+
+function clearOverhangOverlay() {
+  if (overhangMesh) {
+    if (meshObject) meshObject.remove(overhangMesh)
+    overhangMesh.geometry.dispose()
+    overhangMesh = null
+  }
+}
+
+function updateOverhangOverlay(triangleIndices) {
+  clearOverhangOverlay()
+  if (!triangleIndices || triangleIndices.length === 0 || !meshObject) return
+
+  const origGeo = meshObject.geometry
+  const origPos = origGeo.getAttribute('position').array
+  const origIdx = origGeo.getIndex().array
+
+  const positions = new Float32Array(triangleIndices.length * 9)
+  for (let i = 0; i < triangleIndices.length; i++) {
+    const t = triangleIndices[i]
+    for (let v = 0; v < 3; v++) {
+      const srcIdx = origIdx[t * 3 + v]
+      positions[i * 9 + v * 3 + 0] = origPos[srcIdx * 3 + 0]
+      positions[i * 9 + v * 3 + 1] = origPos[srcIdx * 3 + 1]
+      positions[i * 9 + v * 3 + 2] = origPos[srcIdx * 3 + 2]
+    }
+  }
+
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+
+  overhangMesh = new THREE.Mesh(geo, overhangMaterial)
+  overhangMesh.visible = props.overhangVisible
+  meshObject.add(overhangMesh)
 }
 
 function applyTransformMatrix(matrix16) {
@@ -499,6 +573,8 @@ function onDrop(e) {
 
 watch(() => props.meshData, (data) => { loadMesh(data) })
 watch(() => props.transformMatrix, (matrix) => { applyTransformMatrix(matrix) })
+watch(() => props.overhangIndices, (indices) => { updateOverhangOverlay(indices) })
+watch(() => props.overhangVisible, (visible) => { if (overhangMesh) overhangMesh.visible = visible })
 
 onMounted(() => { init(); container.value.focus() })
 
@@ -506,6 +582,8 @@ onBeforeUnmount(() => {
   if (holdMode.value) cancelHoldTransform()
   if (animFrameId) cancelAnimationFrame(animFrameId)
   window.removeEventListener('resize', onResize)
+  clearOverhangOverlay()
+  if (overhangMaterial) overhangMaterial.dispose()
   if (meshObject) {
     meshObject.geometry.dispose()
     meshObject.material.dispose()

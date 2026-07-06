@@ -32,14 +32,15 @@ Open-source support preparation tool for FDM printing. Load STL models, slice la
 
 1. **Load STL** — unsupported model, displayed in 3D viewport
 2. **Model transforms** — rotate, position on build plate, scale uniform/per-axis
-3. **Set slice parameters** — layer height
-4. **Slice** — intersect mesh with Z-planes, produce per-layer contour polygons
-5. **Step through layers** — scrub Z-slider, view cross-section at each height
-6. **Island detection** — highlight unsupported regions per layer
-7. **Place supports** — click to add/remove supports on flagged islands, or auto-generate
-8. **Generate raft** — add raft geometry under model and supports
-9. **Re-slice and verify** — confirm no remaining islands
-10. **Export** — model + supports as separate STLs for Bambu Studio
+3. **Overhang analysis** — detect and visualize overhangs, auto-orient to minimize overhang area
+4. **Set slice parameters** — layer height
+5. **Slice** — intersect mesh with Z-planes, produce per-layer contour polygons
+6. **Step through layers** — scrub Z-slider, view cross-section at each height
+7. **Island detection** — highlight unsupported regions per layer
+8. **Place supports** — click to add/remove supports on flagged islands, or auto-generate
+9. **Generate raft** — add raft geometry under model and supports
+10. **Re-slice and verify** — confirm no remaining islands
+11. **Export** — model + supports as separate STLs for Bambu Studio
 
 ## Output
 
@@ -51,6 +52,7 @@ Detailed subsystem designs live in `designs/`:
 
 - [IPC Protocol](designs/ipc-protocol.md) — stdio framing format, request/response envelope, binary frames, progress events
 - [Undo/Redo & Model Transforms](designs/undo-redo.md) — command pattern, undo/redo stack, transform commands (rotate, translate, scale)
+- [Overhang Analysis & Auto-Orientation](designs/overhang-analysis.md) — overhang detection algorithm, auto-orient search, IPC commands, frontend overlay
 
 ## Architecture
 

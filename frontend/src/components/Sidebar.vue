@@ -140,12 +140,7 @@ function resetOrientation() {
 
 <style scoped>
 .sidebar {
-  width: 240px;
-  background: #1e1e36;
-  border-left: 1px solid #333;
   padding: 16px;
-  overflow-y: auto;
-  flex-shrink: 0;
 }
 
 h2 {
