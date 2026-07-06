@@ -31,7 +31,7 @@ Open-source support preparation tool for FDM printing. Load STL models, slice la
 ## Workflow
 
 1. **Load STL** — unsupported model, displayed in 3D viewport
-2. **Orient model** — rotate and position on build plate
+2. **Model transforms** — rotate, position on build plate, scale uniform/per-axis
 3. **Set slice parameters** — layer height
 4. **Slice** — intersect mesh with Z-planes, produce per-layer contour polygons
 5. **Step through layers** — scrub Z-slider, view cross-section at each height
@@ -50,6 +50,7 @@ The tool exports STL files — it does not drive a printer directly. The exporte
 Detailed subsystem designs live in `designs/`:
 
 - [IPC Protocol](designs/ipc-protocol.md) — stdio framing format, request/response envelope, binary frames, progress events
+- [Undo/Redo & Model Transforms](designs/undo-redo.md) — command pattern, undo/redo stack, transform commands (rotate, translate, scale)
 
 ## Architecture
 

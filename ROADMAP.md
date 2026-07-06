@@ -54,24 +54,42 @@ Load an STL file in the backend, send geometry to the frontend, display in Three
 Model manipulation tools and the command pattern infrastructure to make them undoable. Built simultaneously — every transform is an undoable command from day one.
 
 **Deliverables — Undo/Redo**:
-- [ ] Command base class with `execute()` and `undo()` methods
-- [ ] Undo/redo stack in backend
-- [ ] IPC: `undo` and `redo` commands
-- [ ] Frontend: Ctrl+Z / Ctrl+Shift+Z keybindings
-- [ ] Undo/redo state in UI (button enable/disable, action name display)
-- [ ] Retroactively wrap `load_mesh` as a command
+- [x] Command base class with `execute()` and `undo()` methods
+- [x] Undo/redo stack in backend
+- [x] IPC: `undo` and `redo` commands
+- [x] Frontend: Cmd+Z / Cmd+Shift+Z keybindings
+- [x] Undo/redo state in UI (button enable/disable, action name display)
+- [x] Retroactively wrap `load_mesh` as a command
 
 **Deliverables — Model Manipulation**:
-- [ ] Model orientation (rotate around X/Y/Z, snap to 90°)
-- [ ] Model positioning (translate, place on build plate)
-- [ ] Model scaling (uniform and per-axis)
-- [ ] All transforms are undoable commands
-- [ ] Transform gizmo in Three.js viewport
-- [ ] Reset to original orientation button
+- [x] Model orientation (rotate around X/Y/Z, snap to 90°)
+- [x] Model positioning (translate, place on build plate, center on build plate)
+- [x] Model scaling (uniform and per-axis)
+- [x] All transforms are undoable commands
+- [x] Transform gizmo in Three.js viewport + hold-and-drag (G/R/S)
+- [x] Reset to original orientation button
 
 ---
 
-## Phase 4: Slicing Engine Spike
+## Phase 4: Overhang Analysis & Visualization
+Detect and visualize overhanging geometry that exceeds a configurable angle threshold. Overhangs are areas where printed material extends outward over empty space without solid material directly beneath it — gravity pulls unsupported molten plastic downward, causing sagging or deformed prints. The 45-degree rule: most FDM printers handle overhangs up to ~45° from vertical, where each new layer has enough of the previous layer underneath to anchor to.
+
+**Deliverables**:
+- [ ] Overhang detection algorithm: compute face normals, flag triangles whose angle from vertical exceeds the threshold
+- [ ] Configurable overhang angle threshold (default 45°, adjustable in UI)
+- [ ] Overhang visualization in 3D viewport: checkerboard pattern overlay in yellow and black on overhang faces
+- [ ] Overhang area/volume metric displayed in sidebar
+- [ ] Real-time overhang overlay updates on every transform (rotation, scale), but only when user is not actively inputting 
+- [ ] Manual rotation to minimize overhangs — user rotates model while watching overhang overlay update live
+- [ ] Auto-solve button: automatically find the model orientation that minimizes total overhang area/volume
+- [ ] Auto-solve algorithm: sample rotations (or use optimization) to find the orientation with minimal overhang
+- [ ] Toggle overhang visualization on/off
+- [ ] IPC: `analyze_overhangs` command with angle threshold param → returns overhang triangle indices + area metric
+- [ ] Threaded analysis with progress streaming
+
+---
+
+## Phase 5: Slicing Engine Spike
 Intersect mesh with Z-planes, produce contour polygons per layer.
 
 **Deliverables**:
@@ -89,7 +107,7 @@ Intersect mesh with Z-planes, produce contour polygons per layer.
 
 ---
 
-## Phase 5: Island Detection
+## Phase 6: Island Detection
 Identify unsupported regions per layer.
 
 **Deliverables**:
@@ -104,7 +122,7 @@ Identify unsupported regions per layer.
 
 ---
 
-## Phase 6: Support Generation
+## Phase 7: Support Generation
 Generate FDM-compatible supports and rafts.
 
 **Reference**: `/Users/ericolson/Library/CloudStorage/Dropbox/3d printing/software/Resin2FDM-Lite-v1` — Resin2FDM codebase for support generation / mesh processing prior art.
@@ -122,7 +140,7 @@ Generate FDM-compatible supports and rafts.
 
 ---
 
-## Phase 7: Project Persistence
+## Phase 8: Project Persistence
 Save and load project state so work survives across sessions.
 
 **Deliverables**:
@@ -137,7 +155,7 @@ Save and load project state so work survives across sessions.
 
 ---
 
-## Phase 8: STL Export
+## Phase 9: STL Export
 Export model and supports as separate STLs.
 
 **Deliverables**:
@@ -150,7 +168,7 @@ Export model and supports as separate STLs.
 
 ---
 
-## Phase 9: Model Sectioning
+## Phase 10: Model Sectioning
 Cut a model into multiple pieces along user-defined planes, with connectors (pins, dovetails, etc.) for reassembly after printing. Enables printing large models that exceed build volume.
 
 **Deliverables**:

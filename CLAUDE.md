@@ -55,6 +55,7 @@ Transport: child_process stdio. JSON for structured messages, length-prefixed bi
 - Slicing produces contour polygons (vector) per layer, not rasterized bitmaps.
 - Every mutation implements the command pattern (execute + undo).
 - Threading for compute-heavy operations (slicing, island detection, support generation). Never block the IPC read loop.
+- Behavioral logic lives in pure functions tested via doctest. IPC handlers are thin wrappers that validate params, call pure functions, and format responses.
 
 ## Frontend Rules
 
@@ -63,6 +64,12 @@ Transport: child_process stdio. JSON for structured messages, length-prefixed bi
 - No mesh processing in JavaScript — all geometry work goes through IPC to the backend.
 - The frontend can do lightweight visualization-only computation (e.g., coloring islands red, highlighting layer contours).
 - State management library to be decided during implementation (Pinia or equivalent).
+- **Discoverability over menus.** Prefer wide, visible layouts that expose all available actions at once. No deeply nested menus or hidden panels — power users should see everything without menu-diving. Modals and overlays use 80%+ of the screen with multi-column layouts to show all content without scrolling. Keybindings, tool options, and settings should be one click or keypress from the main view.
+- Behavioral logic lives in pure functions (in `src/utils/`) tested via Jest. Vue components are thin wrappers that call pure functions and emit events.
+
+## Hexagonal Architecture
+
+Prefer pure functions with no system IO for all behavioral logic — transform math, validation, delta computation, domain rules. The C++ backend and Vue frontend are IO shells that call into pure functions; the pure functions never call IPC, filesystem, or rendering APIs. Every pure function must have unit tests. This applies to both C++ (doctest) and JavaScript (Jest). When adding new functionality, extract the logic into a testable pure function first, then wire it into the IO shell.
 
 ## Conventions
 

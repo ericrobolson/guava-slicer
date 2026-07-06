@@ -6,6 +6,7 @@ build: install-frontend
 
 test:
 	@$(MAKE) -s -C backend test
+	@cd frontend && npx jest --no-cache
 
 clean:
 	@$(MAKE) -s -C backend clean
