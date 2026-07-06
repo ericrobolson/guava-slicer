@@ -23,6 +23,7 @@ Open-source support preparation tool for FDM printing. Load STL models, slice la
 | STL parser | microstl (vendored, MIT, header-only) |
 | Linear algebra | linalg.h (vendored, public domain, single header) |
 | Float parsing | fast_float (vendored, Apache-2.0/MIT, header-only) |
+| Polygon ops | Clipper2 1.4.0 (vendored, Boost, 3 source files) |
 | State management | TBD during implementation (Pinia or equivalent) |
 | Testing (C++) | doctest |
 | Build system | Zig (C++ backend), npm (frontend) |
@@ -53,6 +54,7 @@ Detailed subsystem designs live in `designs/`:
 - [IPC Protocol](designs/ipc-protocol.md) — stdio framing format, request/response envelope, binary frames, progress events
 - [Undo/Redo & Model Transforms](designs/undo-redo.md) — command pattern, undo/redo stack, transform commands (rotate, translate, scale)
 - [Overhang Analysis & Auto-Orientation](designs/overhang-analysis.md) — overhang detection algorithm, auto-orient search, IPC commands, frontend overlay
+- [Slicing Engine](designs/slicing-engine.md) — mesh-plane intersection, contour assembly, layer inspection mode, IPC commands
 
 ## Architecture
 

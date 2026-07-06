@@ -5,6 +5,7 @@
 #include "ipc.h"
 #include "mesh_ops.h"
 #include "overhang.h"
+#include "slicer_commands.h"
 #include "stl_parser.h"
 #include "transform.h"
 
@@ -612,6 +613,8 @@ void register_all() {
     ipc::register_command("apply_orientation", handle_apply_orientation);
     ipc::register_command("undo", handle_undo);
     ipc::register_command("redo", handle_redo);
+
+    slicer_commands::register_all();
 }
 
 } // namespace commands

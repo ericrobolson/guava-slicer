@@ -96,21 +96,24 @@ Detect and visualize overhanging geometry that exceeds a configurable angle thre
 
 ---
 
-## Phase 5: Slicing Engine Spike
-Intersect mesh with Z-planes, produce contour polygons per layer.
+## Phase 5: Slicing Engine Spike ✓ DONE
+Intersect mesh with Y-planes (Y is vertical axis), produce contour polygons per layer.
 
 **Deliverables**:
-- [ ] Mesh-plane intersection algorithm (produce contour line segments per layer)
-- [ ] Contour assembly (connect line segments into closed polygons)
-- [ ] Threaded slicing (slice on worker thread, stream progress to frontend)
-- [ ] IPC: `slice` command with layer height param → stream layer contours
-- [ ] Layer preview: 2D canvas/SVG showing contour polygons for selected layer
-- [ ] Z-slider to step through layers
-- [ ] Layer count and current height display
-- [ ] Slice result cached until mesh or params change
+- [x] Mesh-plane intersection algorithm (produce contour line segments per layer)
+- [x] Contour assembly (connect line segments into closed polygons via edge connectivity)
+- [x] Threaded slicing (slice on worker thread, stream progress to frontend)
+- [x] IPC: `slice` command with layer height param → stream layer contours
+- [x] Layer inspection mode: in-viewport clipping plane + contour overlay (replaces original 2D canvas plan)
+- [x] Vertical layer slider on right edge of viewport + Up/Down arrow keys
+- [x] Layer count, current layer, and height display in sidebar
+- [x] Slice result cached until mesh or params change (keyed by mesh hash)
+- [x] Auto-slice in background on mesh load/transform/orient
 
-**Decisions to make**:
-- [ ] Polygon library for contour ops (candidate: Clipper2 — vendored, builds under Zig)
+**Decisions made**:
+- [x] Polygon library: Clipper2 1.4.0 vendored (Boost license, 3 source files compiled under Zig with exceptions enabled). Not used by the slicer itself — available for Phase 6 island detection.
+- [x] Layer visualization: in-viewport clipping plane + contour overlay (not separate 2D canvas — keeps spatial context)
+- [x] Layer data transfer: backend caches full result, frontend requests individual layers via `get_layer` on demand
 
 ---
 

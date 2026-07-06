@@ -11,6 +11,20 @@
   >
     <div v-if="dragOver" class="drop-overlay">Drop STL file here</div>
     <div v-if="holdMode" class="mode-indicator">{{ holdModeLabel }} — drag to transform, release to confirm</div>
+
+    <div v-if="sliceInspecting && sliceLayerCount > 0" class="layer-slider">
+      <div class="layer-label">{{ sliceCurrentLayer + 1 }}</div>
+      <input
+        type="range"
+        class="slider-track"
+        :min="0"
+        :max="sliceLayerCount - 1"
+        :value="sliceCurrentLayer"
+        orient="vertical"
+        @input="onSliderInput"
+      />
+      <div class="layer-label bottom">1</div>
+    </div>
   </div>
 </template>
 
@@ -26,9 +40,14 @@ const props = defineProps({
   transformMatrix: { type: Array, default: null },
   overhangIndices: { type: Uint32Array, default: null },
   overhangVisible: { type: Boolean, default: true },
+  sliceInspecting: { type: Boolean, default: false },
+  sliceLayerZ: { type: Number, default: 0 },
+  sliceContours: { type: Array, default: null },
+  sliceLayerCount: { type: Number, default: 0 },
+  sliceCurrentLayer: { type: Number, default: 0 },
 })
 
-const emit = defineEmits(['drop-file', 'orient'])
+const emit = defineEmits(['drop-file', 'orient', 'update:sliceLayer'])
 
 const container = ref(null)
 const dragOver = ref(false)
@@ -49,6 +68,8 @@ let basePosition = null
 let baseQuaternion = null
 let baseScale = null
 let gizmoDragging = false
+let clippingPlane = null
+let contourLineObject = null
 
 const ORBIT_STEP_DEG = 15
 const BUILD_PLATE_SIZE = 256
@@ -79,6 +100,8 @@ const ROTATE_SENSITIVITY = 0.5
 const SCALE_SENSITIVITY = 0.005
 const CHECKER_SIZE = 3.0
 const CHECKER_OPACITY = 0.85
+const CONTOUR_COLOR = 0x00ff88
+const CONTOUR_LINE_WIDTH = 2
 
 const overhangVertexShader = `
   varying vec3 vObjPos;
@@ -317,6 +340,76 @@ function init() {
   animate()
 }
 
+// --- Slice visualization ---
+
+function enableClippingPlane(y) {
+  if (!clippingPlane) {
+    clippingPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), y)
+  } else {
+    clippingPlane.constant = y
+  }
+  renderer.clippingPlanes = [clippingPlane]
+  renderer.localClippingEnabled = true
+}
+
+function disableClippingPlane() {
+  renderer.clippingPlanes = []
+  renderer.localClippingEnabled = false
+  clippingPlane = null
+}
+
+function updateClippingZ(y) {
+  if (clippingPlane) {
+    clippingPlane.constant = y
+  }
+}
+
+function clearContourOverlay() {
+  if (contourLineObject) {
+    scene.remove(contourLineObject)
+    contourLineObject.geometry.dispose()
+    contourLineObject.material.dispose()
+    contourLineObject = null
+  }
+}
+
+function updateContourOverlay(contours, y) {
+  clearContourOverlay()
+  if (!contours || contours.length === 0) return
+
+  const positions = []
+  for (const contour of contours) {
+    const pts = contour.points
+    if (pts.length < 2) continue
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i]
+      const b = pts[(i + 1) % pts.length]
+      positions.push(a[0], y + 0.05, a[1])
+      positions.push(b[0], y + 0.05, b[1])
+    }
+  }
+
+  if (positions.length === 0) return
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+
+  const material = new THREE.LineBasicMaterial({
+    color: CONTOUR_COLOR,
+    linewidth: CONTOUR_LINE_WIDTH,
+    depthTest: false,
+  })
+
+  contourLineObject = new THREE.LineSegments(geometry, material)
+  contourLineObject.renderOrder = 999
+  scene.add(contourLineObject)
+}
+
+function onSliderInput(e) {
+  const value = parseInt(e.target.value, 10)
+  emit('update:sliceLayer', value)
+}
+
 function animate() {
   animFrameId = requestAnimationFrame(animate)
   controls.update()
@@ -529,6 +622,21 @@ function onKeyDown(e) {
     return
   }
 
+  if (props.sliceInspecting && props.sliceLayerCount > 0) {
+    if (e.code === 'ArrowUp') {
+      const next = Math.min(props.sliceCurrentLayer + 1, props.sliceLayerCount - 1)
+      if (next !== props.sliceCurrentLayer) emit('update:sliceLayer', next)
+      e.preventDefault()
+      return
+    }
+    if (e.code === 'ArrowDown') {
+      const next = Math.max(props.sliceCurrentLayer - 1, 0)
+      if (next !== props.sliceCurrentLayer) emit('update:sliceLayer', next)
+      e.preventDefault()
+      return
+    }
+  }
+
   switch (e.code) {
     case 'Numpad1': snapToView((e.ctrlKey || e.metaKey) ? 'back' : 'front'); break
     case 'Numpad3': snapToView((e.ctrlKey || e.metaKey) ? 'left' : 'right'); break
@@ -576,6 +684,28 @@ watch(() => props.transformMatrix, (matrix) => { applyTransformMatrix(matrix) })
 watch(() => props.overhangIndices, (indices) => { updateOverhangOverlay(indices) })
 watch(() => props.overhangVisible, (visible) => { if (overhangMesh) overhangMesh.visible = visible })
 
+watch(() => props.sliceInspecting, (inspecting) => {
+  if (inspecting) {
+    enableClippingPlane(props.sliceLayerZ)
+    updateContourOverlay(props.sliceContours, props.sliceLayerZ)
+  } else {
+    disableClippingPlane()
+    clearContourOverlay()
+  }
+})
+
+watch(() => props.sliceLayerZ, (z) => {
+  if (props.sliceInspecting) {
+    updateClippingZ(z)
+  }
+})
+
+watch(() => props.sliceContours, (contours) => {
+  if (props.sliceInspecting) {
+    updateContourOverlay(contours, props.sliceLayerZ)
+  }
+})
+
 onMounted(() => { init(); container.value.focus() })
 
 onBeforeUnmount(() => {
@@ -583,6 +713,8 @@ onBeforeUnmount(() => {
   if (animFrameId) cancelAnimationFrame(animFrameId)
   window.removeEventListener('resize', onResize)
   clearOverhangOverlay()
+  clearContourOverlay()
+  disableClippingPlane()
   if (overhangMaterial) overhangMaterial.dispose()
   if (meshObject) {
     meshObject.geometry.dispose()
@@ -608,5 +740,70 @@ onBeforeUnmount(() => {
   position: absolute; top: 8px; left: 8px; padding: 4px 10px;
   background: rgba(34, 34, 58, 0.9); border: 1px solid #555; border-radius: 4px;
   color: #eee; font-size: 12px; font-weight: 600; pointer-events: none; z-index: 5;
+}
+
+.layer-slider {
+  position: absolute;
+  right: 16px;
+  top: 40px;
+  bottom: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  z-index: 15;
+}
+
+.layer-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #aaddaa;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  background: rgba(34, 34, 58, 0.85);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.slider-track {
+  flex: 1;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 24px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.slider-track::-webkit-slider-runnable-track {
+  width: 4px;
+  background: rgba(100, 180, 100, 0.3);
+  border-radius: 2px;
+}
+
+.slider-track::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #00ff88;
+  border: 2px solid #005533;
+  margin-left: -6px;
+  cursor: pointer;
+}
+
+.slider-track::-moz-range-track {
+  width: 4px;
+  background: rgba(100, 180, 100, 0.3);
+  border-radius: 2px;
+}
+
+.slider-track::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #00ff88;
+  border: 2px solid #005533;
+  cursor: pointer;
 }
 </style>

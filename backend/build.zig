@@ -97,8 +97,19 @@ fn configureExe(
         .flags = cpp_flags_with_exceptions,
     });
 
+    // Clipper2 uses exceptions internally
+    exe.root_module.addCSourceFiles(.{
+        .files = &.{
+            "vendor/clipper2/src/clipper.engine.cpp",
+            "vendor/clipper2/src/clipper.offset.cpp",
+            "vendor/clipper2/src/clipper.rectclip.cpp",
+        },
+        .flags = cpp_flags_with_exceptions,
+    });
+
     exe.root_module.addIncludePath(b.path("src"));
     exe.root_module.addSystemIncludePath(b.path("vendor"));
+    exe.root_module.addSystemIncludePath(b.path("vendor/clipper2/include"));
 
     return exe;
 }
@@ -146,9 +157,18 @@ pub fn build(b: *std.Build) void {
         .files = &.{"src/stl_parser.cpp"},
         .flags = cpp_flags_with_exceptions,
     });
+    test_exe.root_module.addCSourceFiles(.{
+        .files = &.{
+            "vendor/clipper2/src/clipper.engine.cpp",
+            "vendor/clipper2/src/clipper.offset.cpp",
+            "vendor/clipper2/src/clipper.rectclip.cpp",
+        },
+        .flags = cpp_flags_with_exceptions,
+    });
 
     test_exe.root_module.addIncludePath(b.path("src"));
     test_exe.root_module.addSystemIncludePath(b.path("vendor"));
+    test_exe.root_module.addSystemIncludePath(b.path("vendor/clipper2/include"));
     test_exe.root_module.addIncludePath(b.path("../../../libs/doctest"));
 
     const run_tests = b.addRunArtifact(test_exe);

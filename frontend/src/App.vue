@@ -42,8 +42,14 @@
         :transformMatrix="transformState.matrix"
         :overhangIndices="overhangIndices"
         :overhangVisible="overhangEnabled"
+        :sliceInspecting="sliceInspecting"
+        :sliceLayerZ="sliceCurrentZ"
+        :sliceContours="sliceContours"
+        :sliceLayerCount="sliceLayerCount"
+        :sliceCurrentLayer="sliceCurrentLayer"
         @drop-file="loadFromPath"
         @orient="onOrient"
+        @update:sliceLayer="onSliceLayerChange"
       />
       <div class="sidebar-area">
         <Sidebar
@@ -66,6 +72,19 @@
           @update:threshold="onThresholdChange"
           @apply-orientation="onApplyOrientation"
         />
+        <SlicePanel
+          :hasMesh="!!meshData"
+          :inspecting="sliceInspecting"
+          :slicing="sliceSlicing"
+          :layerCount="sliceLayerCount"
+          :currentLayer="sliceCurrentLayer"
+          :zHeight="sliceCurrentZ"
+          :layerHeight="sliceLayerHeight"
+          :warningCount="sliceWarningCount"
+          :sliceProgress="sliceProgress"
+          @toggle-inspect="toggleSliceInspect"
+          @update:layerHeight="onLayerHeightChange"
+        />
       </div>
     </div>
 
@@ -78,6 +97,7 @@ import { ref, computed, reactive } from 'vue'
 import Viewport from './components/Viewport.vue'
 import Sidebar from './components/Sidebar.vue'
 import OverhangPanel from './components/OverhangPanel.vue'
+import SlicePanel from './components/SlicePanel.vue'
 import KeybindingsModal from './components/KeybindingsModal.vue'
 import { basename } from './utils/path.js'
 
@@ -106,6 +126,17 @@ const orientationCache = reactive({})
 const computingAxis = ref(null)
 const precomputeDone = ref(0)
 const precomputeTotal = ref(5)
+
+const sliceInspecting = ref(false)
+const sliceSlicing = ref(false)
+const sliceLayerCount = ref(0)
+const sliceCurrentLayer = ref(0)
+const sliceCurrentZ = ref(0)
+const sliceLayerHeight = ref(0.06)
+const sliceWarningCount = ref(0)
+const sliceContours = ref(null)
+const sliceProgress = ref({ current: 0, total: 0 })
+let sliceReady = false
 
 const pendingCallbacks = new Map()
 const progressCallbacks = new Map()
@@ -184,6 +215,7 @@ function loadFromPath(path) {
           onOrient({ type: 'place_on_plate' }).then(() => {
             analyzeOverhangs()
             precomputeOrientations()
+            scheduleSlice()
           })
         })
       } else {
@@ -208,6 +240,8 @@ async function onOrient(params) {
   if (msg.ok) {
     updateTransformState(msg.result)
     if (overhangEnabled.value && meshData.value) scheduleOverhangAnalysis()
+    sliceReady = false
+    scheduleSlice()
   } else {
     errorMessage.value = formatError(msg, 'Transform failed')
   }
@@ -282,6 +316,85 @@ function precomputeOrientations() {
   })
 }
 
+const SLICE_DEBOUNCE_MS = 500
+let sliceDebounceTimer = null
+
+async function triggerSlice() {
+  if (!meshData.value) return
+  sliceSlicing.value = true
+  sliceProgress.value = { current: 0, total: 0 }
+
+  const msg = await sendCommand('slice', { layer_height: sliceLayerHeight.value }, (data) => {
+    if (data.layer !== undefined && data.total !== undefined) {
+      sliceProgress.value = { current: data.layer, total: data.total }
+    }
+  })
+
+  sliceSlicing.value = false
+  if (!msg || !msg.ok) {
+    if (msg && msg.error && msg.error.code !== 'CANCELLED') {
+      errorMessage.value = msg ? formatError(msg, 'Slice failed') : 'Slice failed'
+    }
+    sliceReady = false
+    return
+  }
+
+  sliceLayerCount.value = msg.result.layer_count
+  sliceWarningCount.value = msg.result.warning_count
+  sliceReady = true
+
+  if (sliceInspecting.value && sliceLayerCount.value > 0) {
+    fetchLayer(sliceCurrentLayer.value)
+  }
+}
+
+function scheduleSlice() {
+  if (sliceDebounceTimer) clearTimeout(sliceDebounceTimer)
+  sliceDebounceTimer = setTimeout(() => { triggerSlice() }, SLICE_DEBOUNCE_MS)
+}
+
+async function fetchLayer(index) {
+  if (index < 0 || index >= sliceLayerCount.value) return
+  const msg = await sendCommand('get_layer', { layer_index: index })
+  if (!msg || !msg.ok) return
+
+  sliceCurrentZ.value = msg.result.z_height
+  sliceContours.value = msg.result.contours
+}
+
+async function toggleSliceInspect() {
+  if (sliceInspecting.value) {
+    sliceInspecting.value = false
+    sliceContours.value = null
+    return
+  }
+
+  if (!sliceReady) {
+    await triggerSlice()
+  }
+
+  if (sliceLayerCount.value > 0) {
+    sliceInspecting.value = true
+    sliceCurrentLayer.value = 0
+    fetchLayer(0)
+  }
+}
+
+function onSliceLayerChange(index) {
+  sliceCurrentLayer.value = index
+  fetchLayer(index)
+}
+
+function onLayerHeightChange(height) {
+  sliceLayerHeight.value = height
+  sliceReady = false
+  if (sliceInspecting.value) {
+    triggerSlice()
+  } else {
+    scheduleSlice()
+  }
+}
+
 async function onApplyOrientation(axisKey) {
   const cached = orientationCache[axisKey]
   if (!cached) return
@@ -339,6 +452,10 @@ function onGlobalKeyDown(e) {
   } else if (ctrl && key === 'y') {
     e.preventDefault()
     doRedo()
+  } else if (key === 'escape' && sliceInspecting.value) {
+    e.preventDefault()
+    sliceInspecting.value = false
+    sliceContours.value = null
   }
 }
 
