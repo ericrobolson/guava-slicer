@@ -45,7 +45,7 @@ constexpr float DEFAULT_TIP_LENGTH = 1.0f;
 constexpr float DEFAULT_SHAFT_DIAMETER = 0.5f;
 constexpr float DEFAULT_BASE_DIAMETER = 2.0f;
 constexpr float DEFAULT_BASE_HEIGHT = 1.0f;
-constexpr float DEFAULT_SPACING = 2.0f;
+constexpr float DEFAULT_SPACING = 1.2f;
 
 /// @brief Configurable parameters for pillar geometry generation.
 struct SupportParams {

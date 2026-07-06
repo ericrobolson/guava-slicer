@@ -468,6 +468,7 @@ void rebuild_mesh(support::SupportCollection& collection,
         Vec3 shaft_top = {bx, shaft_top_y, bz};
         Vec3 contact = pt.position;
 
+        // Snap contact to actual model surface via ray-cast
         if (rc) {
             Vec3 rd = contact - shaft_top;
             float rl = linalg::length(rd);
@@ -478,8 +479,15 @@ void rebuild_mesh(support::SupportCollection& collection,
             }
         }
 
+        // Penetrate tip into model surface to ensure contact
         Vec3 reach = contact - shaft_top;
         float reach_len = linalg::length(reach);
+        if (reach_len > 0.1f) {
+            Vec3 pen_dir = reach / reach_len;
+            contact = contact + pen_dir * params.tip_penetration;
+            reach = contact - shaft_top;
+            reach_len = linalg::length(reach);
+        }
 
         if (reach_len > 0.1f) {
             Vec3 reach_dir = reach / reach_len;
