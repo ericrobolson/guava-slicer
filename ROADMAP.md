@@ -179,7 +179,13 @@ Generate resin-style supports: straight pillars with contact tips, tree branchin
 - [x] Vertical spacing: 8mm between braces
 - [x] Only between trunks within 1.5× trunk spacing distance
 
-### 7e: Integration
+### 7e: Per-Layer Island Support Propagation
+- [ ] After initial support generation, walk each slice layer bottom-to-top
+- [ ] At each layer, detect faces/contours not connected to any existing geometry (model or support)
+- [ ] For each disconnected face, generate a new support pillar to connect it to the layer below or to the build plate
+- [ ] Repeat until no new islands remain — ensures full coverage even for complex overhangs that the overhang-triangle sampler misses
+
+### 7f: Integration
 - [ ] Re-slice with supports + raft included in geometry
 - [ ] Re-run island detection after support placement to verify fix
 - [ ] Support parameter presets (light/medium/heavy)

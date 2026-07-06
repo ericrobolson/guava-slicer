@@ -224,6 +224,22 @@ void deduplicate_points(std::vector<support::SupportPoint>& points, float spacin
     points = std::move(kept);
 }
 
+// --- Surface snapping ---
+
+void snap_contacts_to_surface(
+    std::vector<support::SupportPoint>& points,
+    const raycaster::MeshRaycaster& rc) {
+    for (auto& pt : points) {
+        // Cast downward from above the contact to find actual model surface
+        Vec3 origin = {pt.position.x, pt.position.y + 1.0f, pt.position.z};
+        Vec3 target = {pt.position.x, pt.position.y - 3.0f, pt.position.z};
+        auto hit = rc.segment_cast(origin, target);
+        if (hit.hit) {
+            pt.position = hit.point;
+        }
+    }
+}
+
 // --- Mesh avoidance (now a no-op — tree branching handles this) ---
 
 void adjust_bases_for_mesh_avoidance(
@@ -442,8 +458,8 @@ void rebuild_mesh(support::SupportCollection& collection,
             Vec3 reach_dir = contact - shaft_end;
             float reach_len = linalg::length(reach_dir);
             bool reach_clear = true;
-            if (reach_len > 1.0f) {
-                Vec3 reach_test_end = shaft_end + (reach_dir / reach_len) * (reach_len - 0.5f);
+            if (reach_len > params.raycast_margin + 0.1f) {
+                Vec3 reach_test_end = shaft_end + (reach_dir / reach_len) * (reach_len - params.raycast_margin);
                 reach_clear = !rc->segment_hits(shaft_end, reach_test_end);
             }
 
@@ -468,26 +484,8 @@ void rebuild_mesh(support::SupportCollection& collection,
         Vec3 shaft_top = {bx, shaft_top_y, bz};
         Vec3 contact = pt.position;
 
-        // Snap contact to actual model surface via ray-cast
-        if (rc) {
-            Vec3 rd = contact - shaft_top;
-            float rl = linalg::length(rd);
-            if (rl > 0.1f) {
-                rd = rd / rl;
-                auto hit = rc->segment_cast(shaft_top, shaft_top + rd * (rl + 2.0f));
-                if (hit.hit) contact = hit.point;
-            }
-        }
-
-        // Penetrate tip into model surface to ensure contact
         Vec3 reach = contact - shaft_top;
         float reach_len = linalg::length(reach);
-        if (reach_len > 0.1f) {
-            Vec3 pen_dir = reach / reach_len;
-            contact = contact + pen_dir * params.tip_penetration;
-            reach = contact - shaft_top;
-            reach_len = linalg::length(reach);
-        }
 
         if (reach_len > 0.1f) {
             Vec3 reach_dir = reach / reach_len;
@@ -498,14 +496,11 @@ void rebuild_mesh(support::SupportCollection& collection,
             uint32_t r3 = emit_ring(cone_start.x, cone_start.y, cone_start.z, shaft_r, V, N);
             connect_rings(r2, r3, support::PILLAR_SEGMENTS, I);
 
-            // Cone tip: fan from r3 to a single point at contact
-            uint32_t tip_v = static_cast<uint32_t>(V.size() / 3);
-            V.push_back(contact.x); V.push_back(contact.y); V.push_back(contact.z);
-            N.push_back(reach_dir.x); N.push_back(reach_dir.y); N.push_back(reach_dir.z);
-            for (uint32_t i = 0; i < support::PILLAR_SEGMENTS; ++i) {
-                uint32_t nx = (i + 1) % support::PILLAR_SEGMENTS;
-                I.push_back(r3 + i); I.push_back(tip_v); I.push_back(r3 + nx);
-            }
+            // Cone tip: taper to tip_end_diameter at contact
+            float tip_end_r = params.tip_end_diameter * 0.5f;
+            uint32_t r4 = emit_ring(contact.x, contact.y, contact.z, tip_end_r, V, N);
+            connect_rings(r3, r4, support::PILLAR_SEGMENTS, I);
+            emit_cap(contact.x, contact.y, contact.z, tip_end_r, 1.0f, V, N, I, false);
         } else {
             emit_cap(bx, shaft_top_y, bz, shaft_r, 1.0f, V, N, I, false);
         }
@@ -541,7 +536,7 @@ void rebuild_mesh(support::SupportCollection& collection,
         }
     }
 
-    // --- Raft ---
+    // --- Raft (solid cylinder, bottom at -RAFT_THICKNESS, top at 0) ---
     Vec3 pmin = {1e30f, 0, 1e30f}, pmax = {-1e30f, 0, -1e30f};
     for (const auto& p : pillars) {
         pmin.x = std::min(pmin.x, p.base_x); pmin.z = std::min(pmin.z, p.base_z);
@@ -552,21 +547,61 @@ void rebuild_mesh(support::SupportCollection& collection,
     float rrz = (pmax.z - pmin.z) * 0.5f + RAFT_MARGIN;
     float rr = std::max(rrx, rrz);
 
-    emit_cap(rcx, 0, rcz, rr, -1.0f, V, N, I, true);
-    uint32_t rb = static_cast<uint32_t>(V.size()/3);
-    for (uint32_t i = 0; i < RAFT_SEGMENTS; ++i) {
-        float a = TWO_PI * static_cast<float>(i) / static_cast<float>(RAFT_SEGMENTS);
-        V.push_back(rcx + std::cos(a)*rr); V.push_back(0); V.push_back(rcz + std::sin(a)*rr);
+    float raft_bot_y = -RAFT_THICKNESS;
+    float raft_top_y = 0.0f;
+
+    // Bottom cap (fan)
+    {
+        uint32_t c = static_cast<uint32_t>(V.size()/3);
+        V.push_back(rcx); V.push_back(raft_bot_y); V.push_back(rcz);
         N.push_back(0); N.push_back(-1); N.push_back(0);
+        uint32_t br = static_cast<uint32_t>(V.size()/3);
+        for (uint32_t i = 0; i < RAFT_SEGMENTS; ++i) {
+            float a = TWO_PI * static_cast<float>(i) / static_cast<float>(RAFT_SEGMENTS);
+            V.push_back(rcx + std::cos(a)*rr); V.push_back(raft_bot_y); V.push_back(rcz + std::sin(a)*rr);
+            N.push_back(0); N.push_back(-1); N.push_back(0);
+        }
+        for (uint32_t i = 0; i < RAFT_SEGMENTS; ++i) {
+            uint32_t nx = (i+1) % RAFT_SEGMENTS;
+            I.push_back(c); I.push_back(br+nx); I.push_back(br+i);
+        }
     }
-    uint32_t rt = static_cast<uint32_t>(V.size()/3);
+    // Side wall
+    uint32_t rb_ring = static_cast<uint32_t>(V.size()/3);
     for (uint32_t i = 0; i < RAFT_SEGMENTS; ++i) {
         float a = TWO_PI * static_cast<float>(i) / static_cast<float>(RAFT_SEGMENTS);
-        V.push_back(rcx + std::cos(a)*rr); V.push_back(RAFT_THICKNESS); V.push_back(rcz + std::sin(a)*rr);
-        N.push_back(0); N.push_back(1); N.push_back(0);
+        float dx = std::cos(a), dz = std::sin(a);
+        V.push_back(rcx + dx*rr); V.push_back(raft_bot_y); V.push_back(rcz + dz*rr);
+        N.push_back(dx); N.push_back(0); N.push_back(dz);
     }
-    connect_rings(rb, rt, RAFT_SEGMENTS, I);
-    emit_cap(rcx, RAFT_THICKNESS, rcz, rr, 1.0f, V, N, I, false);
+    uint32_t rt_ring = static_cast<uint32_t>(V.size()/3);
+    for (uint32_t i = 0; i < RAFT_SEGMENTS; ++i) {
+        float a = TWO_PI * static_cast<float>(i) / static_cast<float>(RAFT_SEGMENTS);
+        float dx = std::cos(a), dz = std::sin(a);
+        V.push_back(rcx + dx*rr); V.push_back(raft_top_y); V.push_back(rcz + dz*rr);
+        N.push_back(dx); N.push_back(0); N.push_back(dz);
+    }
+    for (uint32_t i = 0; i < RAFT_SEGMENTS; ++i) {
+        uint32_t nx = (i+1) % RAFT_SEGMENTS;
+        I.push_back(rb_ring+i); I.push_back(rt_ring+i); I.push_back(rt_ring+nx);
+        I.push_back(rb_ring+i); I.push_back(rt_ring+nx); I.push_back(rb_ring+nx);
+    }
+    // Top cap (fan)
+    {
+        uint32_t c = static_cast<uint32_t>(V.size()/3);
+        V.push_back(rcx); V.push_back(raft_top_y); V.push_back(rcz);
+        N.push_back(0); N.push_back(1); N.push_back(0);
+        uint32_t tr = static_cast<uint32_t>(V.size()/3);
+        for (uint32_t i = 0; i < RAFT_SEGMENTS; ++i) {
+            float a = TWO_PI * static_cast<float>(i) / static_cast<float>(RAFT_SEGMENTS);
+            V.push_back(rcx + std::cos(a)*rr); V.push_back(raft_top_y); V.push_back(rcz + std::sin(a)*rr);
+            N.push_back(0); N.push_back(1); N.push_back(0);
+        }
+        for (uint32_t i = 0; i < RAFT_SEGMENTS; ++i) {
+            uint32_t nx = (i+1) % RAFT_SEGMENTS;
+            I.push_back(c); I.push_back(tr+i); I.push_back(tr+nx);
+        }
+    }
 }
 
 } // namespace support_gen

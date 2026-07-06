@@ -173,8 +173,9 @@ const supportMeshData = ref(null)
 const supportMode = ref(null)
 const supportProgress = ref({ phase: '', step: 0, total: 4 })
 let supportParams = {
-  tip_diameter: 0.3, shaft_diameter: 0.8, base_diameter: 3.0, spacing: 2.0,
-  enabled_categories: 15,
+  tip_diameter: 0.2, shaft_diameter: 0.5, base_diameter: 2.0, spacing: 0.8,
+  tip_end_diameter: 0.3, raycast_margin: 0.5,
+  enabled_categories: 5,
 }
 
 const pendingCallbacks = new Map()
@@ -278,6 +279,10 @@ async function onOrient(params) {
   if (!msg) return
   if (msg.ok) {
     updateTransformState(msg.result)
+    if (msg.result.supports_cleared) {
+      supportMeshData.value = null
+      supportResult.value = null
+    }
     if (overhangEnabled.value && meshData.value) scheduleOverhangAnalysis()
     sliceReady = false
     scheduleSlice()
@@ -499,6 +504,10 @@ async function onApplyOrientation(axisKey) {
   if (!msg) return
   if (msg.ok) {
     updateTransformState(msg.result)
+    if (msg.result.supports_cleared) {
+      supportMeshData.value = null
+      supportResult.value = null
+    }
     analyzeOverhangs()
   } else {
     errorMessage.value = formatError(msg, 'Apply orientation failed')

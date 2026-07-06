@@ -115,6 +115,9 @@ int main(int argc, char** argv) {
     raycaster::MeshRaycaster rc;
     rc.build(m.vertices.data(), m.indices.data(), m.vertex_count, m.triangle_count, transform);
 
+    std::printf("Snapping contacts to model surface...\n");
+    support_gen::snap_contacts_to_surface(coll.points, rc);
+
     std::printf("Generating support mesh (with intersection testing)...\n");
     support_gen::rebuild_mesh(coll, &rc);
 

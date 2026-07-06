@@ -79,6 +79,12 @@ void adjust_bases_for_mesh_avoidance(
     uint32_t vertex_count,
     const linalg_types::Mat4& transform);
 
+/// @brief Snap contact points to actual model surface via downward ray-cast.
+/// Must be called before deduplicate_points and rebuild_mesh.
+void snap_contacts_to_surface(
+    std::vector<support::SupportPoint>& points,
+    const raycaster::MeshRaycaster& rc);
+
 /// @brief Regenerate the complete support mesh from all points.
 /// If a raycaster is provided, supports whose shaft or reach path
 /// intersects the model mesh are skipped or adjusted.

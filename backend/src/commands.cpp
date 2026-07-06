@@ -326,7 +326,14 @@ static void handle_orient_model(const std::string& id, const ipc::json& params) 
         return;
     }
 
-    ipc::send_ok(id, app_state::transform_response(state));
+    // Invalidate supports — they were generated for the previous orientation
+    if (!state.supports.points.empty()) {
+        state.supports.clear();
+    }
+
+    auto resp = app_state::transform_response(state);
+    resp["supports_cleared"] = true;
+    ipc::send_ok(id, resp);
 }
 
 /// @brief Undo handler — undoes the most recent command.
@@ -599,7 +606,13 @@ static void handle_apply_orientation(const std::string& id, const ipc::json& par
     auto cmd = std::make_unique<AutoOrientCommand>(quat, state.transforms, state.mesh);
     state.commands.push(std::move(cmd));
 
-    ipc::send_ok(id, app_state::transform_response(state));
+    if (!state.supports.points.empty()) {
+        state.supports.clear();
+    }
+
+    auto resp = app_state::transform_response(state);
+    resp["supports_cleared"] = true;
+    ipc::send_ok(id, resp);
 }
 
 void register_all() {

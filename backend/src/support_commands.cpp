@@ -61,6 +61,10 @@ static support::SupportParams parse_support_params(const ipc::json& params) {
         sp.base_height = params["base_height"].get<float>();
     if (params.contains("spacing") && params["spacing"].is_number())
         sp.spacing = params["spacing"].get<float>();
+    if (params.contains("tip_end_diameter") && params["tip_end_diameter"].is_number())
+        sp.tip_end_diameter = params["tip_end_diameter"].get<float>();
+    if (params.contains("raycast_margin") && params["raycast_margin"].is_number())
+        sp.raycast_margin = params["raycast_margin"].get<float>();
     if (params.contains("enabled_categories") && params["enabled_categories"].is_number_unsigned())
         sp.enabled_categories = static_cast<uint8_t>(params["enabled_categories"].get<uint32_t>());
     return sp;
@@ -195,12 +199,12 @@ static void handle_generate_supports(const std::string& id, const ipc::json& par
             return;
         }
 
-        slicer::SliceResult slice_copy;
-        bool has_slice = false;
-        slicer_commands::with_cached_result([&](const slicer::SliceResult& result, bool has) {
-            has_slice = has;
-            if (has) slice_copy = result;
-        });
+        // Always slice fresh with current transform (cached slices may be stale after rotation)
+        auto slice_copy = slicer::slice_mesh(
+            m.vertices.data(), m.indices.data(),
+            m.vertex_count, m.triangle_count,
+            transform, slicer::DEFAULT_LAYER_HEIGHT);
+        bool has_slice = slice_copy.layer_count > 0;
 
         island_detection::IslandResult island_result;
         bool has_islands = false;
@@ -285,16 +289,20 @@ static void handle_generate_supports(const std::string& id, const ipc::json& par
                 ") cat=" + support::category_name(p.category));
         }
 
-        ipc::send_progress(id, {{"phase", "building_raycaster"}, {"step", 2}, {"total", 5}});
+        ipc::send_progress(id, {{"phase", "building_raycaster"}, {"step", 2}, {"total", 6}});
 
         raycaster::MeshRaycaster rc;
         rc.build(m.vertices.data(), m.indices.data(), m.vertex_count, m.triangle_count, transform);
 
-        ipc::send_progress(id, {{"phase", "generating_mesh"}, {"step", 3}, {"total", 5}});
+        ipc::send_progress(id, {{"phase", "snapping_contacts"}, {"step", 3}, {"total", 6}});
+
+        support_gen::snap_contacts_to_surface(new_coll.points, rc);
+
+        ipc::send_progress(id, {{"phase", "generating_mesh"}, {"step", 4}, {"total", 6}});
 
         support_gen::rebuild_mesh(new_coll, &rc);
 
-        ipc::send_progress(id, {{"phase", "complete"}, {"step", 4}, {"total", 5}});
+        ipc::send_progress(id, {{"phase", "complete"}, {"step", 5}, {"total", 6}});
 
         auto cmd = std::make_unique<GenerateSupportsCommand>(std::move(new_coll), state);
         state.commands.push(std::move(cmd));

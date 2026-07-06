@@ -123,18 +123,22 @@ const paramDefs = [
   { key: 'tip_diameter', label: 'Tip', min: 0.1, max: 2.0, step: 0.1 },
   { key: 'shaft_diameter', label: 'Shaft', min: 0.3, max: 5.0, step: 0.1 },
   { key: 'base_diameter', label: 'Base', min: 1.0, max: 10.0, step: 0.5 },
-  { key: 'spacing', label: 'Spacing', min: 0.5, max: 20.0, step: 0.5 },
+  { key: 'spacing', label: 'Spacing', min: 0.3, max: 5.0, step: 0.1 },
+  { key: 'tip_end_diameter', label: 'Tip End', min: 0.05, max: 1.0, step: 0.05 },
+  { key: 'raycast_margin', label: 'Ray Margin', min: 0.0, max: 2.0, step: 0.1 },
 ]
 
 const enabledCategories = ref(
-  CATEGORY_BIT_ISLAND | CATEGORY_BIT_REINFORCEMENT | CATEGORY_BIT_OVERHANG | CATEGORY_BIT_STABILIZATION
+  CATEGORY_BIT_ISLAND | CATEGORY_BIT_OVERHANG
 )
 
 const localParams = reactive({
-  tip_diameter: 0.3,
-  shaft_diameter: 0.8,
-  base_diameter: 3.0,
-  spacing: 2.0,
+  tip_diameter: 0.2,
+  shaft_diameter: 0.5,
+  base_diameter: 2.0,
+  spacing: 0.8,
+  tip_end_diameter: 0.3,
+  raycast_margin: 0.5,
 })
 
 const progressPercent = computed(() => {
