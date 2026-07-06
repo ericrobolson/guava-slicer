@@ -3,6 +3,7 @@
 /// Usage: support-test <input.stl> <output-supports.stl> [output-combined.stl]
 #include "island_detection.h"
 #include "linalg_types.h"
+#include "mesh_raycaster.h"
 #include "overhang.h"
 #include "slicer.h"
 #include "stl_parser.h"
@@ -50,6 +51,9 @@ int main(int argc, char** argv) {
         m.bounding_box.max.x, m.bounding_box.max.y, m.bounding_box.max.z);
 
     auto transform = identity_mat4();
+    // Place on build plate (same as frontend's place_on_plate)
+    transform[3][1] = -m.bounding_box.min.y;
+    std::printf("  placed on plate: Y offset = %.2f\n", -m.bounding_box.min.y);
 
     std::printf("Analyzing overhangs (%.0f°)...\n", overhang::DEFAULT_THRESHOLD_DEG);
     auto oh = overhang::analyze(m.vertices.data(), m.indices.data(),
@@ -106,12 +110,20 @@ int main(int argc, char** argv) {
         coll.points, m.vertices.data(), m.vertex_count, transform);
 
     coll.params = sp;
-    std::printf("Generating support mesh...\n");
-    support_gen::rebuild_mesh(coll);
+
+    std::printf("Building BVH raycaster (%u triangles)...\n", m.triangle_count);
+    raycaster::MeshRaycaster rc;
+    rc.build(m.vertices.data(), m.indices.data(), m.vertex_count, m.triangle_count, transform);
+
+    std::printf("Generating support mesh (with intersection testing)...\n");
+    support_gen::rebuild_mesh(coll, &rc);
 
     uint32_t support_tris = static_cast<uint32_t>(coll.mesh_indices.size() / 3);
     uint32_t support_verts = static_cast<uint32_t>(coll.mesh_vertices.size() / 3);
+    uint32_t surviving = support_verts > 0 ? (support_tris / 224) : 0; // ~224 tris per pillar
+    uint32_t filtered = static_cast<uint32_t>(coll.points.size()) - surviving;
     std::printf("  support mesh: %u vertices, %u triangles\n", support_verts, support_tris);
+    std::printf("  ~%u pillars surviving, ~%u filtered by ray-cast\n", surviving, filtered);
 
     std::printf("Writing %s...\n", support_path);
     if (!stl_writer::write_stl(support_path,
@@ -121,9 +133,17 @@ int main(int argc, char** argv) {
     }
 
     if (combined_path) {
+        // Transform model vertices to world space (same as supports)
+        std::vector<float> world_verts(m.vertices.size());
+        for (uint32_t i = 0; i < m.vertex_count; ++i) {
+            float x = m.vertices[i*3], y = m.vertices[i*3+1], z = m.vertices[i*3+2];
+            world_verts[i*3+0] = transform[0][0]*x + transform[1][0]*y + transform[2][0]*z + transform[3][0];
+            world_verts[i*3+1] = transform[0][1]*x + transform[1][1]*y + transform[2][1]*z + transform[3][1];
+            world_verts[i*3+2] = transform[0][2]*x + transform[1][2]*y + transform[2][2]*z + transform[3][2];
+        }
         std::printf("Writing %s...\n", combined_path);
         if (!stl_writer::write_combined_stl(combined_path,
-                m.vertices.data(), m.indices.data(), m.triangle_count,
+                world_verts.data(), m.indices.data(), m.triangle_count,
                 coll.mesh_vertices.data(), coll.mesh_indices.data(), support_tris)) {
             std::fprintf(stderr, "ERROR: failed to write combined STL\n");
             return 1;

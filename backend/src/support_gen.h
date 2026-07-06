@@ -3,6 +3,7 @@
 #pragma once
 
 #include "island_detection.h"
+#include "mesh_raycaster.h"
 #include "overhang.h"
 #include "support_types.h"
 
@@ -79,6 +80,9 @@ void adjust_bases_for_mesh_avoidance(
     const linalg_types::Mat4& transform);
 
 /// @brief Regenerate the complete support mesh from all points.
-void rebuild_mesh(support::SupportCollection& collection);
+/// If a raycaster is provided, supports whose shaft or reach path
+/// intersects the model mesh are skipped or adjusted.
+void rebuild_mesh(support::SupportCollection& collection,
+    const raycaster::MeshRaycaster* rc = nullptr);
 
 } // namespace support_gen

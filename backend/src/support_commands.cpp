@@ -4,6 +4,7 @@
 #include "app_state.h"
 #include "ipc.h"
 #include "island_detection.h"
+#include "mesh_raycaster.h"
 #include "overhang.h"
 #include "slicer_commands.h"
 #include "support_gen.h"
@@ -284,11 +285,16 @@ static void handle_generate_supports(const std::string& id, const ipc::json& par
                 ") cat=" + support::category_name(p.category));
         }
 
-        ipc::send_progress(id, {{"phase", "generating_mesh"}, {"step", 2}, {"total", 4}});
+        ipc::send_progress(id, {{"phase", "building_raycaster"}, {"step", 2}, {"total", 5}});
 
-        support_gen::rebuild_mesh(new_coll);
+        raycaster::MeshRaycaster rc;
+        rc.build(m.vertices.data(), m.indices.data(), m.vertex_count, m.triangle_count, transform);
 
-        ipc::send_progress(id, {{"phase", "complete"}, {"step", 3}, {"total", 4}});
+        ipc::send_progress(id, {{"phase", "generating_mesh"}, {"step", 3}, {"total", 5}});
+
+        support_gen::rebuild_mesh(new_coll, &rc);
+
+        ipc::send_progress(id, {{"phase", "complete"}, {"step", 4}, {"total", 5}});
 
         auto cmd = std::make_unique<GenerateSupportsCommand>(std::move(new_coll), state);
         state.commands.push(std::move(cmd));

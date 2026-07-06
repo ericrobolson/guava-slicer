@@ -15,6 +15,8 @@ using linalg_types::Mat4;
 constexpr float PI = 3.14159265358979323846f;
 constexpr float TWO_PI = 2.0f * PI;
 constexpr float SUPPORT_OFFSET_DIST = 2.5f;
+constexpr float MAX_OFFSET_MULTIPLIER = 4.0f;
+constexpr uint32_t OFFSET_ATTEMPTS = 4;
 constexpr float CONTACT_TIP_CONE_LENGTH = 1.2f;
 constexpr float BRACE_VERTICAL_SPACING = 8.0f;
 constexpr float BRACE_DIAMETER_RATIO = 0.5f;
@@ -310,13 +312,64 @@ static void emit_cylinder(const Vec3& from, const Vec3& to, float radius,
     emit_tapered_cylinder(from, to, radius, radius, verts, norms, indices);
 }
 
+/// @brief Emit a capped tapered cylinder (sealed at both ends).
+static void emit_capped_tapered(const Vec3& from, const Vec3& to,
+    float r_bot, float r_top,
+    std::vector<float>& v, std::vector<float>& n, std::vector<uint32_t>& idx) {
+    Vec3 dir = to - from;
+    float len = linalg::length(dir);
+    if (len < 1e-4f) return;
+    Vec3 axis = dir / len;
+    Vec3 up = (std::abs(axis.y) < 0.99f) ? Vec3{0,1,0} : Vec3{1,0,0};
+    Vec3 u = linalg::normalize(linalg::cross(up, axis));
+    Vec3 w = linalg::cross(axis, u);
+
+    // Bottom cap
+    uint32_t bc = static_cast<uint32_t>(v.size()/3);
+    v.push_back(from.x); v.push_back(from.y); v.push_back(from.z);
+    n.push_back(-axis.x); n.push_back(-axis.y); n.push_back(-axis.z);
+    uint32_t br = static_cast<uint32_t>(v.size()/3);
+    for (uint32_t i = 0; i < support::PILLAR_SEGMENTS; ++i) {
+        float a = TWO_PI * static_cast<float>(i) / static_cast<float>(support::PILLAR_SEGMENTS);
+        Vec3 off = u * (std::cos(a)*r_bot) + w * (std::sin(a)*r_bot);
+        Vec3 p = from + off;
+        v.push_back(p.x); v.push_back(p.y); v.push_back(p.z);
+        n.push_back(-axis.x); n.push_back(-axis.y); n.push_back(-axis.z);
+    }
+    for (uint32_t i = 0; i < support::PILLAR_SEGMENTS; ++i) {
+        uint32_t nx = (i+1) % support::PILLAR_SEGMENTS;
+        idx.push_back(bc); idx.push_back(br+nx); idx.push_back(br+i);
+    }
+
+    // Side walls
+    emit_tapered_cylinder(from, to, r_bot, r_top, v, n, idx);
+
+    // Top cap
+    uint32_t tc = static_cast<uint32_t>(v.size()/3);
+    v.push_back(to.x); v.push_back(to.y); v.push_back(to.z);
+    n.push_back(axis.x); n.push_back(axis.y); n.push_back(axis.z);
+    uint32_t tr = static_cast<uint32_t>(v.size()/3);
+    for (uint32_t i = 0; i < support::PILLAR_SEGMENTS; ++i) {
+        float a = TWO_PI * static_cast<float>(i) / static_cast<float>(support::PILLAR_SEGMENTS);
+        Vec3 off = u * (std::cos(a)*r_top) + w * (std::sin(a)*r_top);
+        Vec3 p = to + off;
+        v.push_back(p.x); v.push_back(p.y); v.push_back(p.z);
+        n.push_back(axis.x); n.push_back(axis.y); n.push_back(axis.z);
+    }
+    for (uint32_t i = 0; i < support::PILLAR_SEGMENTS; ++i) {
+        uint32_t nx = (i+1) % support::PILLAR_SEGMENTS;
+        idx.push_back(tc); idx.push_back(tr+i); idx.push_back(tr+nx);
+    }
+}
+
 // --- Mesh generation ---
 
 void generate_pillar(
     const support::SupportPoint&, const support::SupportParams&,
     std::vector<float>&, std::vector<float>&, std::vector<uint32_t>&) {}
 
-void rebuild_mesh(support::SupportCollection& collection) {
+void rebuild_mesh(support::SupportCollection& collection,
+    const raycaster::MeshRaycaster* rc) {
     collection.mesh_vertices.clear();
     collection.mesh_normals.clear();
     collection.mesh_indices.clear();
@@ -349,26 +402,57 @@ void rebuild_mesh(support::SupportCollection& collection) {
         float h = pt.position.y;
         if (h < support::MIN_PILLAR_HEIGHT) continue;
 
-        // Offset base outward from model centroid
+        // Offset direction from model centroid outward
         float dx = pt.position.x - model_cx;
         float dz = pt.position.z - model_cz;
         float dist = std::sqrt(dx * dx + dz * dz);
 
-        float off_x = 0, off_z = 0;
+        float dir_x = 1.0f, dir_z = 0.0f;
         if (dist > 0.1f) {
-            off_x = (dx / dist) * SUPPORT_OFFSET_DIST;
-            off_z = (dz / dist) * SUPPORT_OFFSET_DIST;
-        } else {
-            off_x = SUPPORT_OFFSET_DIST;
+            dir_x = dx / dist;
+            dir_z = dz / dist;
         }
 
-        float bx = pt.position.x + off_x;
-        float bz = pt.position.z + off_z;
+        // Try increasing offsets until shaft + reach are clear of the model
+        float bx = 0, bz = 0, shaft_top_y = 0;
+        bool found = false;
+
+        for (uint32_t attempt = 0; attempt < OFFSET_ATTEMPTS; ++attempt) {
+            float mult = 1.0f + static_cast<float>(attempt) *
+                (MAX_OFFSET_MULTIPLIER - 1.0f) / static_cast<float>(OFFSET_ATTEMPTS - 1);
+            float off = SUPPORT_OFFSET_DIST * mult;
+
+            bx = pt.position.x + dir_x * off;
+            bz = pt.position.z + dir_z * off;
+
+            float base_top_y = std::min(params.base_height, h * 0.15f);
+            shaft_top_y = h - off;
+            if (shaft_top_y < base_top_y + 1.0f) shaft_top_y = base_top_y + 1.0f;
+            if (shaft_top_y > h - 0.5f) shaft_top_y = h - 0.5f;
+
+            if (!rc) { found = true; break; }
+
+            Vec3 shaft_bot = {bx, base_top_y, bz};
+            Vec3 shaft_end = {bx, shaft_top_y, bz};
+            Vec3 contact = pt.position;
+
+            bool shaft_clear = !rc->segment_hits(shaft_bot, shaft_end);
+
+            // Shorten reach test to exclude the expected hit at the contact surface
+            Vec3 reach_dir = contact - shaft_end;
+            float reach_len = linalg::length(reach_dir);
+            bool reach_clear = true;
+            if (reach_len > 1.0f) {
+                Vec3 reach_test_end = shaft_end + (reach_dir / reach_len) * (reach_len - 0.5f);
+                reach_clear = !rc->segment_hits(shaft_end, reach_test_end);
+            }
+
+            if (shaft_clear && reach_clear) { found = true; break; }
+        }
+
+        if (!found) continue;
 
         float base_top_y = std::min(params.base_height, h * 0.15f);
-        float shaft_top_y = h - SUPPORT_OFFSET_DIST;
-        if (shaft_top_y < base_top_y + 1.0f) shaft_top_y = base_top_y + 1.0f;
-        if (shaft_top_y > h - 0.5f) shaft_top_y = h - 0.5f;
 
         // 1. Base flare
         emit_cap(bx, 0, bz, base_r, -1.0f, V, N, I, true);
@@ -380,9 +464,20 @@ void rebuild_mesh(support::SupportCollection& collection) {
         uint32_t r2 = emit_ring(bx, shaft_top_y, bz, shaft_r, V, N);
         connect_rings(r1, r2, support::PILLAR_SEGMENTS, I);
 
-        // 3. Angled reach + cone tip
+        // 3. Reach + cone tip — all rings XZ-aligned at shaft_r for vertex alignment
         Vec3 shaft_top = {bx, shaft_top_y, bz};
         Vec3 contact = pt.position;
+
+        if (rc) {
+            Vec3 rd = contact - shaft_top;
+            float rl = linalg::length(rd);
+            if (rl > 0.1f) {
+                rd = rd / rl;
+                auto hit = rc->segment_cast(shaft_top, shaft_top + rd * (rl + 2.0f));
+                if (hit.hit) contact = hit.point;
+            }
+        }
+
         Vec3 reach = contact - shaft_top;
         float reach_len = linalg::length(reach);
 
@@ -391,8 +486,20 @@ void rebuild_mesh(support::SupportCollection& collection) {
             float cone_len = std::min(CONTACT_TIP_CONE_LENGTH, reach_len * 0.35f);
             Vec3 cone_start = contact - reach_dir * cone_len;
 
-            emit_tapered_cylinder(shaft_top, cone_start, shaft_r, tip_r * 2.0f, V, N, I);
-            emit_tapered_cylinder(cone_start, contact, tip_r * 2.0f, tip_r * 0.15f, V, N, I);
+            // Uniform-thickness reach section (XZ ring at cone_start, same radius)
+            uint32_t r3 = emit_ring(cone_start.x, cone_start.y, cone_start.z, shaft_r, V, N);
+            connect_rings(r2, r3, support::PILLAR_SEGMENTS, I);
+
+            // Cone tip: fan from r3 to a single point at contact
+            uint32_t tip_v = static_cast<uint32_t>(V.size() / 3);
+            V.push_back(contact.x); V.push_back(contact.y); V.push_back(contact.z);
+            N.push_back(reach_dir.x); N.push_back(reach_dir.y); N.push_back(reach_dir.z);
+            for (uint32_t i = 0; i < support::PILLAR_SEGMENTS; ++i) {
+                uint32_t nx = (i + 1) % support::PILLAR_SEGMENTS;
+                I.push_back(r3 + i); I.push_back(tip_v); I.push_back(r3 + nx);
+            }
+        } else {
+            emit_cap(bx, shaft_top_y, bz, shaft_r, 1.0f, V, N, I, false);
         }
 
         pillars.push_back({bx, bz, h});

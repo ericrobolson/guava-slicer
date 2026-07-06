@@ -62,8 +62,8 @@ struct SupportParams {
 /// @brief Number of segments for cylindrical/conical cross-sections.
 constexpr uint32_t PILLAR_SEGMENTS = 8;
 
-/// @brief Minimum pillar height (mm) — skip supports shorter than this.
-constexpr float MIN_PILLAR_HEIGHT = 0.5f;
+/// @brief Minimum pillar height (mm) — must clear raft thickness.
+constexpr float MIN_PILLAR_HEIGHT = 2.0f;
 
 /// @brief Reinforcement ring radius multiplier relative to island area.
 constexpr float REINFORCEMENT_RING_RADIUS = 2.0f;
