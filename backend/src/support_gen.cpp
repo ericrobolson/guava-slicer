@@ -14,10 +14,8 @@ using linalg_types::Mat4;
 
 constexpr float PI = 3.14159265358979323846f;
 constexpr float TWO_PI = 2.0f * PI;
-constexpr float SUPPORT_OFFSET_DIST = 2.5f;
-constexpr float MAX_OFFSET_MULTIPLIER = 4.0f;
-constexpr uint32_t OFFSET_ATTEMPTS = 4;
 constexpr float CONTACT_TIP_CONE_LENGTH = 1.2f;
+constexpr float OFFSET_STEPS[] = {0.0f, 1.5f, 3.0f, 5.0f};
 constexpr float BRACE_VERTICAL_SPACING = 8.0f;
 constexpr float BRACE_DIAMETER_RATIO = 0.5f;
 constexpr float RAFT_THICKNESS = 1.5f;
@@ -402,110 +400,114 @@ void rebuild_mesh(support::SupportCollection& collection,
     float tip_r = params.tip_diameter * 0.5f;
     float brace_r = shaft_r * BRACE_DIAMETER_RATIO;
 
-    Vec3 bmin = {1e30f, 1e30f, 1e30f}, bmax = {-1e30f, -1e30f, -1e30f};
-    for (const auto& pt : collection.points) {
-        bmin = linalg::min(bmin, pt.position);
-        bmax = linalg::max(bmax, pt.position);
-    }
-    float model_cx = (bmin.x + bmax.x) * 0.5f;
-    float model_cz = (bmin.z + bmax.z) * 0.5f;
-
     struct PillarInfo { float base_x, base_z, height; };
     std::vector<PillarInfo> pillars;
     pillars.reserve(collection.points.size());
 
     for (const auto& pt : collection.points) {
-        float h = pt.position.y;
+        Vec3 contact = pt.position;
+        float h = contact.y;
         if (h < support::MIN_PILLAR_HEIGHT) continue;
 
-        // Offset direction from model centroid outward
-        float dx = pt.position.x - model_cx;
-        float dz = pt.position.z - model_cz;
-        float dist = std::sqrt(dx * dx + dz * dz);
+        // Surface normal XZ direction (preferred offset direction)
+        float nx_proj = pt.normal.x, nz_proj = pt.normal.z;
+        float nlen = std::sqrt(nx_proj * nx_proj + nz_proj * nz_proj);
+        if (nlen > 0.01f) { nx_proj /= nlen; nz_proj /= nlen; }
+        else { nx_proj = 1.0f; nz_proj = 0.0f; }
 
-        float dir_x = 1.0f, dir_z = 0.0f;
-        if (dist > 0.1f) {
-            dir_x = dx / dist;
-            dir_z = dz / dist;
-        }
+        float dir_table[][2] = {
+            {0, 0}, {nx_proj, nz_proj}, {1, 0}, {0, 1}, {-nx_proj, -nz_proj},
+        };
+        constexpr uint32_t N_DIRS = 5;
+        constexpr uint32_t N_OFFSETS = 4;
 
-        // Try increasing offsets until shaft + reach are clear of the model
-        float bx = 0, bz = 0, shaft_top_y = 0;
         bool found = false;
+        float best_bx = contact.x, best_bz = contact.z;
+        float best_off = 0;
 
-        for (uint32_t attempt = 0; attempt < OFFSET_ATTEMPTS; ++attempt) {
-            float mult = 1.0f + static_cast<float>(attempt) *
-                (MAX_OFFSET_MULTIPLIER - 1.0f) / static_cast<float>(OFFSET_ATTEMPTS - 1);
-            float off = SUPPORT_OFFSET_DIST * mult;
+        for (uint32_t oi = 0; oi < N_OFFSETS && !found; ++oi) {
+            float off = OFFSET_STEPS[oi];
+            for (uint32_t di = 0; di < N_DIRS && !found; ++di) {
+                if (oi == 0 && di > 0) continue;
+                float bx = contact.x + dir_table[di][0] * off;
+                float bz = contact.z + dir_table[di][1] * off;
 
-            bx = pt.position.x + dir_x * off;
-            bz = pt.position.z + dir_z * off;
+                if (!rc) { best_bx = bx; best_bz = bz; best_off = off; found = true; break; }
 
-            float base_top_y = std::min(params.base_height, h * 0.15f);
-            shaft_top_y = h - off;
-            if (shaft_top_y < base_top_y + 1.0f) shaft_top_y = base_top_y + 1.0f;
-            if (shaft_top_y > h - 0.5f) shaft_top_y = h - 0.5f;
+                // Test vertical shaft (base to near contact height)
+                float shaft_top_y = h - std::max(off, 1.0f);
+                if (shaft_top_y < params.base_height + 0.5f) shaft_top_y = params.base_height + 0.5f;
+                Vec3 shaft_bot = {bx, params.base_height, bz};
+                Vec3 shaft_end = {bx, shaft_top_y, bz};
+                bool shaft_clear = !rc->segment_hits(shaft_bot, shaft_end);
+                if (!shaft_clear) continue;
 
-            if (!rc) { found = true; break; }
+                // Test angled reach from shaft top toward contact
+                Vec3 reach_dir = contact - shaft_end;
+                float reach_len = linalg::length(reach_dir);
+                if (reach_len < 0.1f) { best_bx = bx; best_bz = bz; best_off = off; found = true; break; }
 
-            Vec3 shaft_bot = {bx, base_top_y, bz};
-            Vec3 shaft_end = {bx, shaft_top_y, bz};
-            Vec3 contact = pt.position;
-
-            bool shaft_clear = !rc->segment_hits(shaft_bot, shaft_end);
-
-            // Shorten reach test to exclude the expected hit at the contact surface
-            Vec3 reach_dir = contact - shaft_end;
-            float reach_len = linalg::length(reach_dir);
-            bool reach_clear = true;
-            if (reach_len > params.raycast_margin + 0.1f) {
-                Vec3 reach_test_end = shaft_end + (reach_dir / reach_len) * (reach_len - params.raycast_margin);
-                reach_clear = !rc->segment_hits(shaft_end, reach_test_end);
+                Vec3 reach_test = shaft_end + (reach_dir / reach_len) * (reach_len - params.raycast_margin);
+                if (!rc->segment_hits(shaft_end, reach_test)) {
+                    best_bx = bx; best_bz = bz; best_off = off;
+                    found = true;
+                }
             }
-
-            if (shaft_clear && reach_clear) { found = true; break; }
         }
 
         if (!found) continue;
 
         float base_top_y = std::min(params.base_height, h * 0.15f);
+        float shaft_top_y = h - std::max(best_off, 1.0f);
+        if (shaft_top_y < base_top_y + 0.5f) shaft_top_y = base_top_y + 0.5f;
+
+        Vec3 shaft_top = {best_bx, shaft_top_y, best_bz};
+
+        // Ray-cast from shaft top toward contact to find exact surface hit
+        Vec3 reach_dir = contact - shaft_top;
+        float reach_len = linalg::length(reach_dir);
+        Vec3 tip_pos = contact;
+
+        if (rc && reach_len > 0.1f) {
+            Vec3 reach_unit = reach_dir / reach_len;
+            auto hit = rc->segment_cast(shaft_top, shaft_top + reach_unit * (reach_len + 1.0f));
+            if (hit.hit) {
+                tip_pos = hit.point;
+            } else {
+                continue;
+            }
+        }
+
+        // Recompute reach to verified surface point
+        reach_dir = tip_pos - shaft_top;
+        reach_len = linalg::length(reach_dir);
+
+        float cone_len = std::min(CONTACT_TIP_CONE_LENGTH, reach_len * 0.3f);
+        Vec3 cone_start = (reach_len > cone_len + 0.1f)
+            ? tip_pos - (reach_dir / reach_len) * cone_len
+            : shaft_top;
 
         // 1. Base flare
-        emit_cap(bx, 0, bz, base_r, -1.0f, V, N, I, true);
-        uint32_t r0 = emit_ring(bx, 0, bz, base_r, V, N);
-        uint32_t r1 = emit_ring(bx, base_top_y, bz, shaft_r, V, N);
+        emit_cap(best_bx, 0, best_bz, base_r, -1.0f, V, N, I, true);
+        uint32_t r0 = emit_ring(best_bx, 0, best_bz, base_r, V, N);
+        uint32_t r1 = emit_ring(best_bx, base_top_y, best_bz, shaft_r, V, N);
         connect_rings(r0, r1, support::PILLAR_SEGMENTS, I);
 
         // 2. Vertical shaft
-        uint32_t r2 = emit_ring(bx, shaft_top_y, bz, shaft_r, V, N);
+        uint32_t r2 = emit_ring(best_bx, shaft_top_y, best_bz, shaft_r, V, N);
         connect_rings(r1, r2, support::PILLAR_SEGMENTS, I);
 
-        // 3. Reach + cone tip — all rings XZ-aligned at shaft_r for vertex alignment
-        Vec3 shaft_top = {bx, shaft_top_y, bz};
-        Vec3 contact = pt.position;
+        // 3. Reach section (shaft_r at cone_start, connected to shaft top ring)
+        uint32_t r3 = emit_ring(cone_start.x, cone_start.y, cone_start.z, shaft_r, V, N);
+        connect_rings(r2, r3, support::PILLAR_SEGMENTS, I);
 
-        Vec3 reach = contact - shaft_top;
-        float reach_len = linalg::length(reach);
+        // 4. Cone tip — tapers to tip_end_diameter AT the surface
+        float tip_end_r = params.tip_end_diameter * 0.5f;
+        uint32_t r4 = emit_ring(tip_pos.x, tip_pos.y, tip_pos.z, tip_end_r, V, N);
+        connect_rings(r3, r4, support::PILLAR_SEGMENTS, I);
+        emit_cap(tip_pos.x, tip_pos.y, tip_pos.z, tip_end_r, 1.0f, V, N, I, false);
 
-        if (reach_len > 0.1f) {
-            Vec3 reach_dir = reach / reach_len;
-            float cone_len = std::min(CONTACT_TIP_CONE_LENGTH, reach_len * 0.35f);
-            Vec3 cone_start = contact - reach_dir * cone_len;
-
-            // Uniform-thickness reach section (XZ ring at cone_start, same radius)
-            uint32_t r3 = emit_ring(cone_start.x, cone_start.y, cone_start.z, shaft_r, V, N);
-            connect_rings(r2, r3, support::PILLAR_SEGMENTS, I);
-
-            // Cone tip: taper to tip_end_diameter at contact
-            float tip_end_r = params.tip_end_diameter * 0.5f;
-            uint32_t r4 = emit_ring(contact.x, contact.y, contact.z, tip_end_r, V, N);
-            connect_rings(r3, r4, support::PILLAR_SEGMENTS, I);
-            emit_cap(contact.x, contact.y, contact.z, tip_end_r, 1.0f, V, N, I, false);
-        } else {
-            emit_cap(bx, shaft_top_y, bz, shaft_r, 1.0f, V, N, I, false);
-        }
-
-        pillars.push_back({bx, bz, h});
+        pillars.push_back({best_bx, best_bz, h});
     }
 
     // --- Cross-bracing between nearby pillars ---

@@ -294,15 +294,11 @@ static void handle_generate_supports(const std::string& id, const ipc::json& par
         raycaster::MeshRaycaster rc;
         rc.build(m.vertices.data(), m.indices.data(), m.vertex_count, m.triangle_count, transform);
 
-        ipc::send_progress(id, {{"phase", "snapping_contacts"}, {"step", 3}, {"total", 6}});
-
-        support_gen::snap_contacts_to_surface(new_coll.points, rc);
-
-        ipc::send_progress(id, {{"phase", "generating_mesh"}, {"step", 4}, {"total", 6}});
+        ipc::send_progress(id, {{"phase", "generating_mesh"}, {"step", 3}, {"total", 5}});
 
         support_gen::rebuild_mesh(new_coll, &rc);
 
-        ipc::send_progress(id, {{"phase", "complete"}, {"step", 5}, {"total", 6}});
+        ipc::send_progress(id, {{"phase", "complete"}, {"step", 4}, {"total", 5}});
 
         auto cmd = std::make_unique<GenerateSupportsCommand>(std::move(new_coll), state);
         state.commands.push(std::move(cmd));
