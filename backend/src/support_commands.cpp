@@ -92,22 +92,28 @@ struct GenerateSupportsCommand : command::Command {
     std::string name() const override { return "Generate supports"; }
 };
 
-/// @brief Command that adds a single support point.
+/// @brief Command that adds a single support — appends geometry without rebuilding.
 struct PlaceSupportCommand : command::Command {
     support::SupportPoint point;
+    support::SupportCollection previous;
     app_state::AppState& state;
 
     PlaceSupportCommand(support::SupportPoint p, app_state::AppState& st)
         : point(p), state(st) {}
 
     void execute() override {
+        previous = state.supports;
         state.supports.points.push_back(point);
-        support_gen::rebuild_mesh(state.supports);
+
+        const auto& m = state.mesh;
+        auto transform = state.transforms.composite_matrix();
+        raycaster::MeshRaycaster rc;
+        rc.build(m.vertices.data(), m.indices.data(), m.vertex_count, m.triangle_count, transform);
+        support_gen::append_single_support(state.supports, point, &rc);
     }
 
     void undo() override {
-        state.supports.points.pop_back();
-        support_gen::rebuild_mesh(state.supports);
+        state.supports = std::move(previous);
     }
 
     std::string name() const override { return "Place support"; }

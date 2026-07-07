@@ -179,13 +179,37 @@ Generate resin-style supports: straight pillars with contact tips, tree branchin
 - [x] Vertical spacing: 8mm between braces
 - [x] Only between trunks within 1.5× trunk spacing distance
 
-### 7e: Per-Layer Island Support Propagation
+### 7e: BVH Raycaster & Mesh Intersection ✓ DONE
+- [x] SAH-based BVH construction from model mesh (1M+ triangles, <1s build)
+- [x] Moller-Trumbore ray-triangle intersection with stack-based traversal
+- [x] Segment intersection queries for support path validation
+- [x] Vertical shaft + angled reach tested against BVH before emitting geometry
+- [x] Progressive offset attempts (0, 1.5, 3, 5mm) with surface normal preferred direction
+- [x] Surface-hit ray-cast for cone tips — tips end exactly at model surface
+- [x] Headless CLI (`support-test`) for offline iteration against real STL models
+- [x] STL export (supports-only and combined model+supports)
+- [x] Fresh re-slice on generate (supports follow current orientation)
+- [x] Supports auto-clear on model rotation/orientation change
+- [x] Transform lock (UI button + keyboard block)
+- [x] Incremental place-support (appends geometry without full rebuild)
+
+---
+
+## Phase 8: Advanced Support Generation
+Improvements to support coverage and structural quality beyond the initial pillar generation.
+
+### 8a: Per-Layer Island Support Propagation
 - [ ] After initial support generation, walk each slice layer bottom-to-top
 - [ ] At each layer, detect faces/contours not connected to any existing geometry (model or support)
 - [ ] For each disconnected face, generate a new support pillar to connect it to the layer below or to the build plate
 - [ ] Repeat until no new islands remain — ensures full coverage even for complex overhangs that the overhang-triangle sampler misses
 
-### 7f: Integration
+### 8b: Tree-Style Support Joining
+- [ ] Nearby supports merge into shared trunks to reduce material and improve rigidity
+- [ ] Supports can land on other supports (not just the build plate)
+- [ ] Branch routing around model geometry using BVH ray-casting
+
+### 8c: Integration & Presets
 - [ ] Re-slice with supports + raft included in geometry
 - [ ] Re-run island detection after support placement to verify fix
 - [ ] Support parameter presets (light/medium/heavy)
@@ -196,7 +220,7 @@ Generate resin-style supports: straight pillars with contact tips, tree branchin
 
 ---
 
-## Phase 8: Project Persistence
+## Phase 9: Project Persistence (was 8)
 Save and load project state so work survives across sessions.
 
 **Deliverables**:
@@ -212,7 +236,7 @@ Save and load project state so work survives across sessions.
 
 ---
 
-## Phase 9: STL Export
+## Phase 10: STL Export (was 9)
 Export model and supports as separate STLs.
 
 **Deliverables**:
@@ -225,7 +249,7 @@ Export model and supports as separate STLs.
 
 ---
 
-## Phase 10: Model Sectioning
+## Phase 11: Model Sectioning (was 10)
 Cut a model into multiple pieces along user-defined planes, with connectors (pins, dovetails, etc.) for reassembly after printing. Enables printing large models that exceed build volume.
 
 **Deliverables**:
@@ -244,7 +268,7 @@ Cut a model into multiple pieces along user-defined planes, with connectors (pin
 
 ---
 
-## Phase 11: Island Detection Enhancements
+## Phase 12: Island Detection Enhancements (was 11)
 Deferred improvements to island detection from Phase 6.
 
 **Deliverables**:

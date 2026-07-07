@@ -137,7 +137,7 @@ const localParams = reactive({
   shaft_diameter: 0.5,
   base_diameter: 2.0,
   spacing: 0.8,
-  tip_end_diameter: 0.3,
+  tip_end_diameter: 0.1,
   raycast_margin: 0.5,
 })
 

@@ -57,6 +57,7 @@ const props = defineProps({
   severityScores: { type: Array, default: null },
   supportMeshData: { type: Object, default: null },
   supportMode: { type: String, default: null },
+  transformLocked: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['drop-file', 'orient', 'update:sliceLayer', 'place-support', 'remove-support'])
@@ -211,6 +212,7 @@ function initGizmo() {
   scene.add(gizmo.getHelper())
 
   gizmo.addEventListener('dragging-changed', (e) => {
+    if (props.transformLocked) return
     controls.enabled = !e.value
     if (e.value) {
       gizmoDragging = true
@@ -785,8 +787,8 @@ function zoomStep(factor) {
 function onKeyDown(e) {
   if (e.repeat) return
 
-  // Hold-and-drag transform (G/R/S) — only if gizmo isn't being dragged
-  if (!holdMode.value && !gizmoDragging && meshObject) {
+  // Hold-and-drag transform (G/R/S) — blocked when transform is locked
+  if (!holdMode.value && !gizmoDragging && meshObject && !props.transformLocked) {
     if (e.code === 'KeyG') { startHoldTransform('translate'); e.preventDefault(); return }
     if (e.code === 'KeyR') { startHoldTransform('rotate'); e.preventDefault(); return }
     if (e.code === 'KeyS') { startHoldTransform('scale'); e.preventDefault(); return }
@@ -857,6 +859,16 @@ function onDrop(e) {
 
 watch(() => props.meshData, (data) => { loadMesh(data) })
 watch(() => props.transformMatrix, (matrix) => { applyTransformMatrix(matrix) })
+watch(() => props.transformLocked, (locked) => {
+  if (!gizmo) return
+  if (locked) {
+    gizmo.detach()
+    gizmo.getHelper().visible = false
+  } else if (meshObject) {
+    gizmo.attach(meshObject)
+    gizmo.getHelper().visible = true
+  }
+})
 watch(() => props.overhangIndices, (indices) => { updateOverhangOverlay(indices) })
 watch(() => props.overhangVisible, (visible) => { if (overhangMesh) overhangMesh.visible = visible })
 

@@ -42,8 +42,8 @@
       <div class="transform-grid">
         <div v-for="axis in rotateAxes" :key="axis.label" class="axis-row">
           <span class="axis-label" :style="{ color: axis.color }">{{ axis.label }}</span>
-          <button class="snap-btn" @click="snapRotate(axis.axis, -90)" title="-90">-90</button>
-          <button class="snap-btn" @click="snapRotate(axis.axis, 90)" title="+90">+90</button>
+          <button class="snap-btn" :disabled="transformLocked" @click="snapRotate(axis.axis, -90)" title="-90">-90</button>
+          <button class="snap-btn" :disabled="transformLocked" @click="snapRotate(axis.axis, 90)" title="+90">+90</button>
         </div>
       </div>
 
@@ -57,7 +57,7 @@
           class="scale-input"
           @keydown.enter="applyScale"
         />
-        <button class="action-btn" @click="applyScale" :disabled="!validScale">Apply</button>
+        <button class="action-btn" @click="applyScale" :disabled="!validScale || transformLocked">Apply</button>
       </div>
 
       <h2 class="section-header">Actions</h2>
@@ -65,6 +65,10 @@
         <button class="action-btn full-width" @click="placeOnPlate">Place on Build Plate</button>
         <button class="action-btn full-width" @click="centerOnPlate">Center on Build Plate</button>
         <button class="action-btn full-width" @click="resetOrientation">Reset Orientation</button>
+        <button
+          :class="['action-btn', 'full-width', { active: transformLocked }]"
+          @click="$emit('toggle-lock')"
+        >{{ transformLocked ? 'Unlock' : 'Lock' }}</button>
       </div>
     </template>
   </aside>
@@ -79,9 +83,10 @@ const props = defineProps({
   filePath: { type: String, default: '' },
   transformState: { type: Object, default: () => ({}) },
   hasMesh: { type: Boolean, default: false },
+  transformLocked: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['orient'])
+const emit = defineEmits(['orient', 'toggle-lock'])
 
 const axes = [{ label: 'X', i: 0 }, { label: 'Y', i: 1 }, { label: 'Z', i: 2 }]
 

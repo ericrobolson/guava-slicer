@@ -42,7 +42,7 @@ struct SupportPoint {
 constexpr float DEFAULT_TIP_DIAMETER = 0.2f;
 constexpr float DEFAULT_TIP_PENETRATION = 0.1f;
 constexpr float DEFAULT_TIP_LENGTH = 1.0f;
-constexpr float DEFAULT_TIP_END_DIAMETER = 0.3f;
+constexpr float DEFAULT_TIP_END_DIAMETER = 0.1f;
 constexpr float DEFAULT_RAYCAST_MARGIN = 0.5f;
 constexpr float DEFAULT_SHAFT_DIAMETER = 0.5f;
 constexpr float DEFAULT_BASE_DIAMETER = 2.0f;

@@ -95,6 +95,7 @@
         :severityScores="islandResult ? islandResult.severityScores : null"
         :supportMeshData="supportMeshData"
         :supportMode="supportMode"
+        :transformLocked="transformLocked"
         @drop-file="loadFromPath"
         @orient="onOrient"
         @update:sliceLayer="onSliceLayerChange"
@@ -107,7 +108,9 @@
           :filePath="filePath"
           :transformState="transformState"
           :hasMesh="!!meshData"
+          :transformLocked="transformLocked"
           @orient="onOrient"
+          @toggle-lock="transformLocked = !transformLocked"
         />
       </div>
     </div>
@@ -167,6 +170,7 @@ const islandDetecting = ref(false)
 const islandResult = ref(null)
 const currentLayerIslands = ref(null)
 
+const transformLocked = ref(false)
 const supportGenerating = ref(false)
 const supportResult = ref(null)
 const supportMeshData = ref(null)
@@ -174,7 +178,7 @@ const supportMode = ref(null)
 const supportProgress = ref({ phase: '', step: 0, total: 4 })
 let supportParams = {
   tip_diameter: 0.2, shaft_diameter: 0.5, base_diameter: 2.0, spacing: 0.8,
-  tip_end_diameter: 0.3, raycast_margin: 0.5,
+  tip_end_diameter: 0.1, raycast_margin: 0.5,
   enabled_categories: 5,
 }
 
@@ -275,6 +279,7 @@ async function openFile() {
 }
 
 async function onOrient(params) {
+  if (transformLocked.value) return
   const msg = await sendCommand('orient_model', params)
   if (!msg) return
   if (msg.ok) {

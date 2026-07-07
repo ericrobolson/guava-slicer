@@ -85,6 +85,13 @@ void snap_contacts_to_surface(
     std::vector<support::SupportPoint>& points,
     const raycaster::MeshRaycaster& rc);
 
+/// @brief Generate a single support pillar and append to the collection's mesh.
+/// Uses the same logic as rebuild_mesh (vertical shaft + angled reach + surface-hit tip).
+/// Returns false if no valid path was found.
+bool append_single_support(support::SupportCollection& collection,
+    const support::SupportPoint& point,
+    const raycaster::MeshRaycaster* rc = nullptr);
+
 /// @brief Regenerate the complete support mesh from all points.
 /// If a raycaster is provided, supports whose shaft or reach path
 /// intersects the model mesh are skipped or adjusted.
