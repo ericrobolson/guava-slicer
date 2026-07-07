@@ -36,6 +36,11 @@
       <button class="dismiss" @click="errorMessage = null">×</button>
     </div>
 
+    <div v-if="exportMessage" class="success-banner">
+      <span>{{ exportMessage }}</span>
+      <button class="dismiss" @click="exportMessage = null">×</button>
+    </div>
+
     <div class="main-content">
       <div class="left-sidebar-area">
         <OverhangPanel
@@ -80,6 +85,15 @@
           @update:params="onSupportParamsChange"
           @update:categories="onSupportCategoriesChange"
         />
+        <div class="export-section">
+          <h2 class="panel-header">Export</h2>
+          <button
+            class="export-btn"
+            :disabled="!meshData || exporting"
+            @click="exportSTL"
+          >{{ exporting ? 'Exporting...' : 'Export STL' }}</button>
+          <span class="export-hint">Ctrl+E</span>
+        </div>
       </div>
       <Viewport
         :meshData="meshData"
@@ -127,7 +141,7 @@ import OverhangPanel from './components/OverhangPanel.vue'
 import SlicePanel from './components/SlicePanel.vue'
 import SupportPanel from './components/SupportPanel.vue'
 import KeybindingsModal from './components/KeybindingsModal.vue'
-import { basename } from './utils/path.js'
+import { basename, stripExtension } from './utils/path.js'
 
 const connected = ref(false)
 const showKeybindings = ref(false)
@@ -639,6 +653,37 @@ async function clearSupports() {
   supportMeshData.value = null
 }
 
+const exporting = ref(false)
+const exportMessage = ref(null)
+
+async function exportSTL() {
+  if (!meshData.value || !window.electronIPC) return
+
+  const defaultName = stripExtension(filePath.value) + '_combined.stl'
+  const savePath = await window.electronIPC.saveFileDialog(defaultName)
+  if (!savePath) return
+
+  exporting.value = true
+  exportMessage.value = null
+
+  const msg = await sendCommand('export_stl', { path: savePath })
+
+  exporting.value = false
+  if (!msg || !msg.ok) {
+    errorMessage.value = msg ? formatError(msg, 'Export failed') : 'Export failed'
+    return
+  }
+
+  exportMessage.value = `Exported ${msg.result.triangle_count.toLocaleString()} triangles (${formatExportSize(msg.result.file_size_bytes)})`
+  setTimeout(() => { exportMessage.value = null }, 5000)
+}
+
+function formatExportSize(bytes) {
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
+
 function onSupportModeChange(mode) {
   supportMode.value = mode
 }
@@ -663,6 +708,9 @@ function onGlobalKeyDown(e) {
   } else if (ctrl && key === 'y') {
     e.preventDefault()
     doRedo()
+  } else if (ctrl && key === 'e') {
+    e.preventDefault()
+    exportSTL()
   } else if (key === 'p' && !ctrl) {
     e.preventDefault()
     supportMode.value = supportMode.value === 'place' ? null : 'place'
@@ -858,5 +906,62 @@ body {
   border-left: 1px solid #333;
   overflow-y: auto;
   flex-shrink: 0;
+}
+
+.success-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: #2d5a2d;
+  color: #7ddf7d;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.success-banner .dismiss {
+  background: none;
+  border: none;
+  color: #7ddf7d;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.export-section {
+  padding: 12px 16px;
+  border-top: 1px solid #333;
+}
+
+.export-section .panel-header {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.export-btn {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #444;
+  border-radius: 3px;
+  background: #2a4a2a;
+  color: #7ddf7d;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.export-btn:hover:not(:disabled) { background: #3a5a3a; }
+.export-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.export-hint {
+  display: block;
+  text-align: center;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #666;
 }
 </style>

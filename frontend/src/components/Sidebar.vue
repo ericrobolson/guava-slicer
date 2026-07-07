@@ -70,6 +70,10 @@
           @click="$emit('toggle-lock')"
         >{{ transformLocked ? 'Unlock' : 'Lock' }}</button>
       </div>
+
+      <h2 class="section-header">Transform</h2>
+      <pre v-if="transformState.matrix" class="transform-matrix">{{ formatMatrix(transformState.matrix) }}</pre>
+      <span v-else class="empty">Identity</span>
     </template>
   </aside>
 </template>
@@ -140,6 +144,19 @@ function centerOnPlate() {
 
 function resetOrientation() {
   emit('orient', { type: 'reset' })
+}
+
+function formatMatrix(m) {
+  if (!m || m.length < 16) return 'Identity'
+  const rows = []
+  for (let r = 0; r < 4; r++) {
+    const cells = []
+    for (let c = 0; c < 4; c++) {
+      cells.push(m[c * 4 + r].toFixed(4).padStart(9))
+    }
+    rows.push(cells.join(' '))
+  }
+  return rows.join('\n')
 }
 </script>
 
@@ -272,5 +289,19 @@ h2 {
 .full-width {
   width: 100%;
   padding: 6px 10px;
+}
+
+.transform-matrix {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 10px;
+  color: #999;
+  background: #1a1a2e;
+  padding: 6px 8px;
+  border-radius: 3px;
+  border: 1px solid #333;
+  overflow-x: auto;
+  line-height: 1.4;
+  white-space: pre;
+  margin: 0;
 }
 </style>

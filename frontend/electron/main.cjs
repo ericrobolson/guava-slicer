@@ -155,6 +155,15 @@ ipcMain.handle('open-file-dialog', async () => {
   return result.filePaths[0]
 })
 
+ipcMain.handle('save-file-dialog', async (_event, defaultName) => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    defaultPath: defaultName || 'export.stl',
+    filters: [{ name: 'STL Files', extensions: ['stl'] }],
+  })
+  if (result.canceled) return null
+  return result.filePath
+})
+
 app.whenReady().then(() => {
   createWindow()
   mainWindow.webContents.on('did-finish-load', () => {

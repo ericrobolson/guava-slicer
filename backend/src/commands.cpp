@@ -2,6 +2,7 @@
 /// @brief IPC command implementations.
 #include "commands.h"
 #include "app_state.h"
+#include "export_commands.h"
 #include "ipc.h"
 #include "island_commands.h"
 #include "support_commands.h"
@@ -632,6 +633,7 @@ void register_all() {
     slicer_commands::register_all();
     island_commands::register_all();
     support_commands::register_all();
+    export_commands::register_all();
 }
 
 } // namespace commands

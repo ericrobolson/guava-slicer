@@ -78,9 +78,17 @@ const sections = [
     ],
   },
   {
+    title: 'Supports',
+    bindings: [
+      { key: 'P', action: 'Toggle place support mode' },
+      { key: 'X', action: 'Toggle remove support mode' },
+    ],
+  },
+  {
     title: 'File',
     bindings: [
       { key: 'Drag & Drop', action: 'Load STL file' },
+      { key: 'Cmd+E', action: 'Export STL' },
     ],
   },
 ]

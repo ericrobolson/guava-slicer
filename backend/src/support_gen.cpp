@@ -18,7 +18,7 @@ constexpr float CONTACT_TIP_CONE_LENGTH = 1.2f;
 constexpr float OFFSET_STEPS[] = {0.0f, 1.5f, 3.0f, 5.0f};
 constexpr float BRACE_VERTICAL_SPACING = 8.0f;
 constexpr float BRACE_DIAMETER_RATIO = 0.5f;
-constexpr float RAFT_THICKNESS = 1.5f;
+constexpr float RAFT_THICKNESS = 1.0f;
 constexpr float RAFT_MARGIN = 2.0f;
 constexpr uint32_t RAFT_SEGMENTS = 32;
 
@@ -384,11 +384,14 @@ void generate_pillar(
 
 /// @brief Shared pillar generation: emits geometry for one support point.
 /// Returns true if geometry was emitted.
+/// @brief Emit pillar geometry for a support point.
+/// If out_base_x/out_base_z are non-null, stores the actual trunk base position.
 static bool emit_pillar_for_point(
     const support::SupportPoint& pt,
     const support::SupportParams& params,
     const raycaster::MeshRaycaster* rc,
-    std::vector<float>& V, std::vector<float>& N, std::vector<uint32_t>& I) {
+    std::vector<float>& V, std::vector<float>& N, std::vector<uint32_t>& I,
+    float* out_base_x = nullptr, float* out_base_z = nullptr) {
 
     Vec3 contact = pt.position;
     float h = contact.y;
@@ -436,6 +439,8 @@ static bool emit_pillar_for_point(
         }
     }
     if (!found) return false;
+    if (out_base_x) *out_base_x = best_bx;
+    if (out_base_z) *out_base_z = best_bz;
 
     float base_top_y = std::min(params.base_height, h * 0.15f);
     float shaft_top_y = h - std::max(best_off, 1.0f);
@@ -505,12 +510,13 @@ void rebuild_mesh(support::SupportCollection& collection,
     pillars.reserve(collection.points.size());
 
     for (const auto& pt : collection.points) {
-        if (emit_pillar_for_point(pt, params, rc, V, N, I)) {
-            pillars.push_back({pt.position.x, pt.position.z, pt.position.y});
+        float bx = 0, bz = 0;
+        if (emit_pillar_for_point(pt, params, rc, V, N, I, &bx, &bz)) {
+            pillars.push_back({bx, bz, pt.position.y});
         }
     }
 
-    // --- Cross-bracing between nearby pillars ---
+    // --- Cross-bracing between nearby pillars (skip braces that intersect the model) ---
     float max_brace_dist = params.spacing * 3.0f;
     float max_brace_dist_sq = max_brace_dist * max_brace_dist;
 
@@ -529,20 +535,28 @@ void rebuild_mesh(support::SupportCollection& collection,
                 float y_lo = static_cast<float>(b) * BRACE_VERTICAL_SPACING - BRACE_VERTICAL_SPACING * 0.4f;
                 float y_hi = static_cast<float>(b) * BRACE_VERTICAL_SPACING + BRACE_VERTICAL_SPACING * 0.4f;
                 if (y_hi > min_h) continue;
+                Vec3 p0, p1;
                 if (b % 2 == 0) {
-                    emit_cylinder({pa.base_x, y_lo, pa.base_z}, {pb.base_x, y_hi, pb.base_z}, brace_r, V, N, I);
+                    p0 = {pa.base_x, y_lo, pa.base_z};
+                    p1 = {pb.base_x, y_hi, pb.base_z};
                 } else {
-                    emit_cylinder({pa.base_x, y_hi, pa.base_z}, {pb.base_x, y_lo, pb.base_z}, brace_r, V, N, I);
+                    p0 = {pa.base_x, y_hi, pa.base_z};
+                    p1 = {pb.base_x, y_lo, pb.base_z};
                 }
+                if (rc && rc->segment_hits(p0, p1)) continue;
+                emit_cylinder(p0, p1, brace_r, V, N, I);
             }
         }
     }
 
     // --- Raft (solid cylinder, bottom at -RAFT_THICKNESS, top at 0) ---
+    float base_r = params.base_diameter * 0.5f;
     Vec3 pmin = {1e30f, 0, 1e30f}, pmax = {-1e30f, 0, -1e30f};
     for (const auto& p : pillars) {
-        pmin.x = std::min(pmin.x, p.base_x); pmin.z = std::min(pmin.z, p.base_z);
-        pmax.x = std::max(pmax.x, p.base_x); pmax.z = std::max(pmax.z, p.base_z);
+        pmin.x = std::min(pmin.x, p.base_x - base_r);
+        pmin.z = std::min(pmin.z, p.base_z - base_r);
+        pmax.x = std::max(pmax.x, p.base_x + base_r);
+        pmax.z = std::max(pmax.z, p.base_z + base_r);
     }
     float rcx = (pmin.x + pmax.x) * 0.5f, rcz = (pmin.z + pmax.z) * 0.5f;
     float rrx = (pmax.x - pmin.x) * 0.5f + RAFT_MARGIN;

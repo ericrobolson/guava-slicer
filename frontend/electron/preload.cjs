@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('electronIPC', {
   onConnected: (cb) => ipcRenderer.on('backend-connected', () => cb()),
   onDisconnected: (cb) => ipcRenderer.on('backend-disconnected', () => cb()),
   openFileDialog: () => ipcRenderer.invoke('open-file-dialog'),
+  saveFileDialog: (defaultName) => ipcRenderer.invoke('save-file-dialog', defaultName),
   getPathForFile: (file) => webUtils.getPathForFile(file),
   readBinaryFile: (filePath) => {
     const buf = fs.readFileSync(filePath)

@@ -72,4 +72,36 @@ bool write_combined_stl(const std::string& path,
     return true;
 }
 
+uint64_t export_combined_stl(const std::string& path,
+    const float* model_verts, const uint32_t* model_idx, uint32_t model_vert_count, uint32_t model_tri_count,
+    const float transform[4][4],
+    const float* support_verts, const uint32_t* support_idx, uint32_t support_tri_count) {
+
+    std::vector<float> baked(model_vert_count * 3);
+    for (uint32_t i = 0; i < model_vert_count; ++i) {
+        float x = model_verts[i*3], y = model_verts[i*3+1], z = model_verts[i*3+2];
+        baked[i*3+0] = transform[0][0]*x + transform[1][0]*y + transform[2][0]*z + transform[3][0];
+        baked[i*3+1] = transform[0][1]*x + transform[1][1]*y + transform[2][1]*z + transform[3][1];
+        baked[i*3+2] = transform[0][2]*x + transform[1][2]*y + transform[2][2]*z + transform[3][2];
+    }
+
+    bool ok;
+    if (support_verts && support_idx && support_tri_count > 0) {
+        ok = write_combined_stl(path,
+            baked.data(), model_idx, model_tri_count,
+            support_verts, support_idx, support_tri_count);
+    } else {
+        ok = write_stl(path, baked.data(), model_idx, model_tri_count);
+    }
+
+    if (!ok) return 0;
+
+    std::FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return 0;
+    std::fseek(f, 0, SEEK_END);
+    uint64_t size = static_cast<uint64_t>(std::ftell(f));
+    std::fclose(f);
+    return size;
+}
+
 } // namespace stl_writer

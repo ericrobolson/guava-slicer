@@ -178,6 +178,7 @@ Generate resin-style supports: straight pillars with contact tips, tree branchin
 - [x] Strut diameter: 0.5× main shaft
 - [x] Vertical spacing: 8mm between braces
 - [x] Only between trunks within 1.5× trunk spacing distance
+- [x] BVH intersection test — skip braces that pass through model geometry
 
 ### 7e: BVH Raycaster & Mesh Intersection ✓ DONE
 - [x] SAH-based BVH construction from model mesh (1M+ triangles, <1s build)
@@ -195,24 +196,55 @@ Generate resin-style supports: straight pillars with contact tips, tree branchin
 
 ---
 
-## Phase 8: Advanced Support Generation
+## Phase 8: STL Export (was 10)
+Export model and supports as separate STLs. Moved up — exporting early enables debugging support geometry, overhang coverage, and slicing artifacts in external tools (Bambu Studio, PrusaSlicer).
+
+**Deliverables**:
+- [x] Export combined (model + supports + raft) as single STL with baked transforms
+- [x] IPC: `export_stl` command with path param
+- [x] Native save-as dialog (Electron) with default filename
+- [x] Export button in left sidebar + Ctrl+E hotkey
+- [x] Success/error toast notifications
+- [x] Raft bounds fixed to encompass all trunk base positions + flare radius
+- [ ] Export model-only STL (future — when model/supports-only modes are added)
+- [ ] Export support-only STL (future)
+- [ ] Verify exported STLs produce clean slice in Bambu Studio (blocked on 9d — watertight support mesh)
+
+**Known warnings in Bambu Studio** (deferred to Phase 9d):
+- Open edges — support cylinders/cones lack end caps
+- Non-manifold edges — at model/support merge boundary
+- Floating regions — model and support meshes are disconnected
+- Missing walls — slicer can't determine inside/outside for non-watertight support geometry
+
+---
+
+## Phase 9: Advanced Support Generation (was 8)
 Improvements to support coverage and structural quality beyond the initial pillar generation.
 
-### 8a: Per-Layer Island Support Propagation
+### 9a: Per-Layer Island Support Propagation
 - [ ] After initial support generation, walk each slice layer bottom-to-top
 - [ ] At each layer, detect faces/contours not connected to any existing geometry (model or support)
 - [ ] For each disconnected face, generate a new support pillar to connect it to the layer below or to the build plate
 - [ ] Repeat until no new islands remain — ensures full coverage even for complex overhangs that the overhang-triangle sampler misses
 
-### 8b: Tree-Style Support Joining
+### 9b: Tree-Style Support Joining
 - [ ] Nearby supports merge into shared trunks to reduce material and improve rigidity
 - [ ] Supports can land on other supports (not just the build plate)
 - [ ] Branch routing around model geometry using BVH ray-casting
 
-### 8c: Integration & Presets
+### 9c: Integration & Presets
 - [ ] Re-slice with supports + raft included in geometry
 - [ ] Re-run island detection after support placement to verify fix
 - [ ] Support parameter presets (light/medium/heavy)
+
+### 9d: Watertight Support Mesh
+Export-quality improvements so Bambu Studio (and other slicers) can generate proper walls/perimeters for support geometry.
+- [ ] End caps on all support cylinders (shaft tops/bottoms, brace ends)
+- [ ] End caps on cone tips (contact tips are currently open-ended tubes)
+- [ ] Consistent winding order / outward-facing normals on all support faces
+- [ ] Validate manifold output: zero open edges, zero non-manifold edges in exported STL
+- [ ] Eliminate "floating regions" warning — ensure model and support meshes are recognized as printable by Bambu Studio
+- [ ] Verify walls/perimeters appear in Bambu Studio slice preview for support geometry
 
 **Decisions to make**:
 - [ ] Pillar sizing formula for load-bearing (buckling check vs. fixed defaults)
@@ -220,7 +252,7 @@ Improvements to support coverage and structural quality beyond the initial pilla
 
 ---
 
-## Phase 9: Project Persistence (was 8)
+## Phase 10: Project Persistence (was 9)
 Save and load project state so work survives across sessions.
 
 **Deliverables**:
@@ -233,19 +265,6 @@ Save and load project state so work survives across sessions.
 - [ ] File association (.guava extension)
 - [ ] Project save captures undo stack state
 - [ ] Cache precomputed auto-orient rotations per mesh (keyed by mesh hash + threshold) — skip recomputation on reload
-
----
-
-## Phase 10: STL Export (was 9)
-Export model and supports as separate STLs.
-
-**Deliverables**:
-- [ ] Export model mesh as STL (with applied transforms)
-- [ ] Export support + raft mesh as separate STL
-- [ ] Export combined (model + supports + raft) as single STL
-- [ ] Export dialog with format options
-- [ ] IPC: `export_stl` command with export mode param
-- [ ] Verify exported STLs load correctly in Bambu Studio
 
 ---
 
